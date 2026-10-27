@@ -1,0 +1,348 @@
+<!doctype html>
+<html lang="en">
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>SATELLITES</title>
+<meta name="description" content="Earth observation globe">
+<meta name="theme-color" content="#000">
+<link rel="icon" type="image/svg+xml" href="/favicon.svg" sizes="any">
+<meta property="og:type" content="website">
+<meta property="og:title" content="SATELLITES">
+<meta property="og:description" content="Earth observation globe">
+<meta property="og:url" content="https://ungoldman.com/satellites/">
+<meta property="og:image" content="https://ungoldman.com/satellites/og.png">
+<meta property="og:image:width" content="1200">
+<meta property="og:image:height" content="630">
+<meta property="og:image:alt" content="The Earth half in daylight, ringed by the geostationary belt and labeled weather and imaging satellites">
+<meta name="twitter:card" content="summary_large_image">
+<style>
+  /* palette and type follow ungoldman.com. Light theme swaps the same
+     tokens, from the OS setting until L or its button picks one. */
+  :root {
+    color-scheme: dark;
+    --bg: #000;
+    --panel-bg: #0b0b0d;
+    --fg: #e9eaee;
+    --dim: #9aa0ab;
+    --rule: rgba(255, 255, 255, 0.28);
+    --hover: rgba(255, 255, 255, 0.12);
+    --pressed: rgba(255, 255, 255, 0.18);
+    --glow: rgba(255, 255, 255, 0.6);
+    --focus: rgba(255, 255, 255, 0.5);
+    /* the globe's sea and land, by day and by night, and its air, as r g b */
+    --ocean: 24 44 86;
+    --ocean-night: 6 9 20;
+    --land: 78 92 114;
+    --land-night: 22 26 38;
+    --air: 110 150 255;
+    --coast: rgba(196, 214, 255, 0.75);
+    --grid: rgba(196, 214, 255, 0.1);
+    --geo: oklch(0.82 0.12 75);
+    --leo: oklch(0.8 0.11 200);
+    --track: rgba(255, 255, 255, 0.35);
+    --mono: ui-monospace, Menlo, Consolas, monospace;
+  }
+  :root[data-theme="light"] {
+    color-scheme: light;
+    --bg: #f6f6f6;
+    --panel-bg: #fff;
+    --fg: #16171a;
+    --dim: #5d636e;
+    --rule: rgba(0, 0, 0, 0.25);
+    --hover: rgba(0, 0, 0, 0.07);
+    --pressed: rgba(0, 0, 0, 0.12);
+    --glow: rgba(0, 0, 0, 0.2);
+    --focus: rgba(0, 0, 0, 0.5);
+    --ocean: 178 200 232;
+    --ocean-night: 110 124 152;
+    --land: 246 246 244;
+    --land-night: 150 156 170;
+    --air: 120 150 220;
+    --coast: rgba(30, 44, 80, 0.7);
+    --grid: rgba(30, 44, 80, 0.1);
+    --geo: oklch(0.55 0.14 60);
+    --leo: oklch(0.5 0.12 220);
+    --track: rgba(0, 0, 0, 0.35);
+  }
+  html { touch-action: manipulation; }
+  body {
+    box-sizing: border-box;
+    min-height: 100dvh;
+    margin: 0;
+    padding: 0 16px;
+    overflow: hidden;
+    background: var(--bg);
+    color: var(--fg);
+    font: 13px/1.4 var(--mono);
+  }
+  #canvas {
+    position: fixed;
+    inset: 0;
+    width: 100vw;
+    height: 100dvh;
+    touch-action: none;
+    cursor: grab;
+    user-select: none;
+    -webkit-user-select: none;
+  }
+  #canvas:active { cursor: grabbing; }
+  #canvas.over { cursor: pointer; }
+  header {
+    position: relative;
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 12px 0;
+  }
+  header .rule,
+  #credits h2::after {
+    content: "";
+    flex: 1;
+    height: 1px;
+    align-self: center;
+    background: linear-gradient(90deg, var(--rule), transparent);
+  }
+  #home { display: inline-flex; align-items: center; color: var(--dim); text-decoration: none; }
+  #home:hover, #home:focus-visible { color: var(--fg); }
+  h1 { margin: 0; font-size: 1.2rem; font-weight: 600; letter-spacing: 0.12em; text-transform: uppercase; white-space: nowrap; }
+  #menus, #controls { display: flex; gap: 6px; }
+  select {
+    height: 32px;
+    padding: 0 8px;
+    font: inherit;
+    letter-spacing: 0.04em;
+    color: var(--fg);
+    background: var(--bg);
+    border: 1px solid var(--rule);
+    border-radius: 6px;
+    cursor: pointer;
+  }
+  #readout {
+    position: fixed;
+    left: 16px;
+    bottom: 16px;
+    margin: 0;
+    display: grid;
+    gap: 2px;
+    color: var(--dim);
+    font-size: 11px;
+    letter-spacing: 0.04em;
+    font-variant-numeric: tabular-nums;
+    white-space: pre;
+    pointer-events: none;
+    text-shadow: 0 0 3px var(--bg), 0 0 8px var(--bg);
+  }
+  #readout-time { color: var(--fg); font-size: 13px; font-weight: 600; letter-spacing: 0.08em; }
+  /* the picked satellite, its numbers, and its latest picture */
+  #card {
+    position: fixed;
+    right: 16px;
+    top: 60px;
+    box-sizing: border-box;
+    width: 300px;
+    padding: 12px 14px;
+    color: var(--dim);
+    background: color-mix(in srgb, var(--panel-bg) 88%, transparent);
+    border: 1px solid var(--rule);
+    border-radius: 10px;
+    font-size: 11px;
+    letter-spacing: 0.04em;
+    font-variant-numeric: tabular-nums;
+  }
+  #card[hidden] { display: none; }
+  #card h2 { display: flex; gap: 10px; align-items: center; margin: 0 0 8px; color: var(--fg); font-size: 13px; font-weight: 600; letter-spacing: 0.12em; text-transform: uppercase; }
+  #card h2 span { flex: 1; }
+  #card dl { display: grid; grid-template-columns: auto 1fr; gap: 2px 2ch; margin: 0 0 10px; }
+  #card dt { color: var(--dim); }
+  #card dd { margin: 0; color: var(--fg); white-space: nowrap; }
+  #card figure { margin: 0; }
+  #card figure a { display: block; }
+  #card img { display: block; width: 100%; height: auto; border-radius: 6px; background: var(--hover); }
+  #card img[hidden] { display: none; }
+  #card figcaption { margin-top: 6px; }
+  #card a { color: var(--fg); text-underline-offset: 2px; }
+  button {
+    font: inherit;
+    letter-spacing: inherit;
+    color: var(--fg);
+    background: transparent;
+    border: 1px solid var(--rule);
+    border-radius: 6px;
+    padding: 4px 10px;
+    cursor: pointer;
+    transition: background 0.2s, text-shadow 0.2s;
+  }
+  #controls button {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 32px;
+    height: 32px;
+    padding: 0;
+    font-size: 15px;
+    line-height: 1;
+  }
+  button.small { font-size: 10px; padding: 1px 8px; }
+  button[aria-pressed="true"] { background: var(--pressed); }
+  button:hover,
+  button:focus-visible { background: var(--hover); text-shadow: 0 0 12px var(--glow); }
+  :focus-visible { outline: 1px solid var(--focus); outline-offset: 2px; }
+  #credits {
+    box-sizing: border-box;
+    width: min(480px, calc(100vw - 32px));
+    max-height: 82dvh;
+    padding: 16px 20px;
+    overflow-y: auto;
+    color: var(--fg);
+    background: var(--panel-bg);
+    border: 1px solid var(--rule);
+    border-radius: 10px;
+    box-shadow: 0 12px 40px rgba(0, 0, 0, 0.5);
+    font: 12px/1.5 var(--mono);
+  }
+  #credits::backdrop { background: rgba(0, 0, 0, 0.6); }
+  #credits h2 { display: flex; gap: 10px; align-items: center; margin: 0 0 10px; font-size: 1rem; font-weight: 600; letter-spacing: 0.12em; text-transform: uppercase; }
+  #credits h2 button { order: 1; }
+  #credits h3 { margin: 14px 0 6px; font-size: 10px; font-weight: 400; letter-spacing: 0.3em; text-transform: uppercase; color: var(--dim); }
+  #credits p, #credits li { margin: 0 0 8px; color: var(--dim); }
+  #credits ul { margin: 0; padding: 0 0 0 2ch; }
+  #credits b { font-weight: 600; color: var(--fg); }
+  #credits a { color: var(--fg); text-underline-offset: 2px; }
+  #keys { border-collapse: collapse; color: var(--dim); }
+  #keys th { padding: 2px 2ch 2px 0; font-weight: 400; text-align: left; }
+  #keys td { padding: 2px 0; }
+  kbd { white-space: nowrap; font: 11px var(--mono); color: var(--fg); border: 1px solid var(--rule); border-radius: 3px; padding: 0 5px; }
+  .geo { color: var(--geo); }
+  .leo { color: var(--leo); }
+  /* phone: menus and buttons dock at the bottom, the card above them */
+  @media (max-width: 600px) {
+    h1 { font-size: 1rem; }
+    #readout { top: 52px; bottom: auto; }
+    #menus {
+      position: fixed;
+      left: 0;
+      right: 0;
+      bottom: calc(68px + env(safe-area-inset-bottom));
+      display: grid;
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+      gap: 8px;
+      padding: 0 16px;
+    }
+    #menus select { min-width: 0; }
+    #controls {
+      position: fixed;
+      left: 0;
+      right: 0;
+      bottom: 0;
+      justify-content: center;
+      gap: 8px;
+      padding: 12px 16px calc(12px + env(safe-area-inset-bottom));
+    }
+    #card {
+      top: auto;
+      left: 16px;
+      right: 16px;
+      bottom: calc(120px + env(safe-area-inset-bottom));
+      width: auto;
+      max-height: 45dvh;
+      overflow-y: auto;
+    }
+    #card img { max-height: 24dvh; width: auto; max-width: 100%; }
+  }
+  @media (pointer: coarse) {
+    #controls button { width: 44px; height: 44px; font-size: 18px; }
+    select { height: 40px; }
+    button.small { min-height: 30px; }
+  }
+  @media (prefers-reduced-motion: reduce) {
+    button { transition: none; }
+  }
+</style>
+
+<canvas id="canvas" aria-label="The Earth and the imaging satellites around it, press and drag to turn it"></canvas>
+
+<header>
+  <a id="home" href="/" title="index" aria-label="back to index">&#8617;</a>
+  <h1>Satellites</h1>
+  <span class="rule"></span>
+  <div id="menus">
+    <select id="pick" aria-label="Satellite" title="Satellite ([ and ])"><option value="">all satellites</option></select>
+    <select id="rate" aria-label="Time speed" title="Time speed (, and .)"></select>
+  </div>
+  <nav id="controls" aria-label="Controls">
+    <button data-action="now" title="Back to now (N)" aria-label="Back to now">&#8634;</button>
+    <button data-action="pause" title="Pause (Space)" aria-label="Pause" aria-pressed="false">&#10073;&#10073;</button>
+    <button data-action="scale" title="True scale (T)" aria-label="True scale" aria-pressed="false">&#8597;&#xFE0E;</button>
+    <button data-action="light" title="Lights (L)" aria-label="Light mode" aria-pressed="false">&#9680;&#xFE0E;</button>
+    <button popovertarget="credits" title="About (I)" aria-label="About">?</button>
+  </nav>
+</header>
+
+<p id="readout" aria-live="off">
+  <span id="readout-time"></span>
+  <span id="readout-rate"></span>
+  <span id="readout-count"></span>
+  <span id="readout-note"></span>
+</p>
+
+<section id="card" hidden aria-live="polite">
+  <h2><span id="card-name"></span><button class="small" data-action="deselect">Close</button></h2>
+  <dl>
+    <dt>flown by</dt><dd id="card-by"></dd>
+    <dt>orbit</dt><dd id="card-orbit"></dd>
+    <dt>height</dt><dd id="card-alt"></dd>
+    <dt>speed</dt><dd id="card-speed"></dd>
+    <dt>below</dt><dd id="card-below"></dd>
+    <dt>about</dt><dd><a id="card-wiki" target="_blank" rel="noopener"></a></dd>
+  </dl>
+  <figure>
+    <a id="card-link" target="_blank" rel="noopener"><img id="card-img" alt="" hidden></a>
+    <figcaption id="card-caption"></figcaption>
+  </figure>
+</section>
+
+<div id="credits" popover>
+  <h2>Satellites <button class="small" popovertarget="credits" popovertargetaction="hide">Close</button></h2>
+  <p>Where the satellites whose pictures anyone can see are right now, and what they last saw. <span class="geo">Gold</span> ones hang over one spot on the equator and watch a whole face of the Earth. <span class="leo">Blue</span> ones cross the poles and see a strip at a time.</p>
+
+  <h3>Controls</h3>
+  <table id="keys">
+    <tr><th scope="row">hold <kbd>W</kbd> <kbd>A</kbd> <kbd>S</kbd> <kbd>D</kbd> or drag</th><td>turn</td></tr>
+    <tr><th scope="row">hold <kbd>Q</kbd> <kbd>E</kbd></th><td>roll</td></tr>
+    <tr><th scope="row">wheel, pinch, <kbd>+</kbd> <kbd>&minus;</kbd></th><td>zoom</td></tr>
+    <tr><th scope="row">click, <kbd>[</kbd> <kbd>]</kbd></th><td>pick a satellite</td></tr>
+    <tr><th scope="row"><kbd>,</kbd> <kbd>.</kbd></th><td>slower or faster time</td></tr>
+    <tr><th scope="row"><kbd>Space</kbd></th><td>pause time</td></tr>
+    <tr><th scope="row"><kbd>N</kbd></th><td>back to now</td></tr>
+    <tr><th scope="row"><kbd>T</kbd></th><td>true scale</td></tr>
+    <tr><th scope="row"><kbd>L</kbd></th><td>lights</td></tr>
+    <tr><th scope="row"><kbd>I</kbd></th><td>this panel</td></tr>
+    <tr><th scope="row"><kbd>Esc</kbd></th><td>let go of a satellite</td></tr>
+  </table>
+
+  <h3>Orbits</h3>
+  <ul>
+    <li><b><a href="https://en.wikipedia.org/wiki/Geostationary_orbit">Geostationary</a>.</b> 35,786 km up, one lap a day, the same way the Earth turns, so each stays over one point. Turn time up and the Earth carries them round.</li>
+    <li><b><a href="https://en.wikipedia.org/wiki/Sun-synchronous_orbit">Sun-synchronous</a>.</b> 700 to 830 km up, about 100 minutes a lap, over the poles. The Earth's bulge <a href="https://en.wikipedia.org/wiki/Nodal_precession">swings the orbit round</a> once a year, so each crosses the equator at the same local time every day.</li>
+    <li><b>Scale.</b> At true scale geostationary is 6.6 Earth radii out and the polar orbits hug the surface. The default squeezes height on a log so both show.</li>
+  </ul>
+
+  <h3>Math</h3>
+  <ul>
+    <li>Orbits come from CelesTrak's <a href="https://celestrak.org/NORAD/documentation/gp-data-formats.php">mean elements</a>, two-body motion solved with <a href="https://en.wikipedia.org/wiki/Kepler%27s_equation">Kepler's equation</a> plus the <a href="https://en.wikipedia.org/wiki/Nodal_precession">drift the Earth's bulge gives</a> the orbit plane and perigee. Within about 50 km of <a href="https://en.wikipedia.org/wiki/Simplified_perturbations_models">SGP4</a> (<a href="https://celestrak.org/publications/AIAA/2006-6753/">Vallado et al. 2006</a>) over three days, checked against <a href="https://github.com/shashwatak/satellite-js">satellite.js</a>.</li>
+    <li>The Earth turns by Greenwich mean <a href="https://en.wikipedia.org/wiki/Sidereal_time">sidereal time</a>. Heights are above the <a href="https://en.wikipedia.org/wiki/World_Geodetic_System">WGS 84</a> ellipsoid. The Sun's direction is the Astronomical Almanac's <a href="https://aa.usno.navy.mil/faq/sun_approx">low-precision formula</a>.</li>
+    <li>The globe is <a href="https://en.wikipedia.org/wiki/Ray_casting">ray-cast</a> per pixel at a lower resolution. Each pixel turns back into a latitude and longitude, looks up land or sea, and is lit by the Sun, which draws the <a href="https://en.wikipedia.org/wiki/Terminator_(solar)">terminator</a>.</li>
+    <li>The view is one <a href="https://en.wikipedia.org/wiki/Quaternions_and_spatial_rotation">quaternion</a>, steered the way <a href="https://ungoldman.com/shapes/">Shapes</a> is.</li>
+  </ul>
+
+  <h3>Credits</h3>
+  <p>Orbital elements from <a href="https://celestrak.org/">CelesTrak</a>. Land from <a href="https://www.naturalearthdata.com/">Natural Earth</a>.</p>
+  <p>Full disks from <a href="https://www.star.nesdis.noaa.gov/GOES/">NOAA STAR</a> (GOES), <a href="https://himawari8.nict.go.jp/">NICT</a> (Himawari), and <a href="https://slider.cira.colostate.edu/">CIRA SLIDER</a> (Meteosat, GK-2A). Daily true color below the polar imagers from <a href="https://worldview.earthdata.nasa.gov/">NASA Worldview</a> through <a href="https://nasa-gibs.github.io/gibs-api-docs/">GIBS</a>. The rest link to <a href="https://mosdac.gov.in/">MOSDAC</a>, <a href="https://landsatlook.usgs.gov/">LandsatLook</a>, and the <a href="https://browser.dataspace.copernicus.eu/">Copernicus Browser</a>.</p>
+  <p><a href="https://github.com/ungoldman/satellites">Source</a>. Public domain (<a href="https://spdx.org/licenses/CC0-1.0.html">CC0-1.0</a>).</p>
+
+  <h3>AI disclosure</h3>
+  <p>Inspired by <a href="https://github.com/ungoldman/latest-earth">latest-earth</a>, written 2022. Built on October 26th 2026 with Claude Code (Opus 5.5).</p>
+</div>
+
+<script type="module" src="app.js"></script>
+</html>

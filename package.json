@@ -1,0 +1,32 @@
+{
+  "name": "satellites",
+  "description": "Earth observation globe",
+  "version": "0.0.0",
+  "author": "Nate Goldman <ungoldman@gmail.com>",
+  "bugs": {
+    "url": "https://github.com/ungoldman/satellites/issues"
+  },
+  "devDependencies": {
+    "@biomejs/biome": "^2.6.3",
+    "fast-check": "^4.10.2",
+    "satellite.js": "^7.1.0"
+  },
+  "engines": {
+    "node": ">=22.12.0"
+  },
+  "homepage": "https://ungoldman.com/satellites",
+  "license": "CC0-1.0",
+  "private": true,
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/ungoldman/satellites.git"
+  },
+  "scripts": {
+    "coverage": "node --test --experimental-test-coverage --test-coverage-exclude='test/**' --test-coverage-exclude='src/start.js' --test-coverage-exclude='src/coast.js' --test-coverage-lines=100 --test-coverage-branches=100 --test-coverage-functions=100 test/*.test.js",
+    "format": "biome check --write .",
+    "lint": "biome check .",
+    "start": "node src/start.js",
+    "test": "npm run lint && node --test test/*.test.js"
+  },
+  "type": "module"
+}
