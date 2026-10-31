@@ -13,6 +13,7 @@ Node 22.12+. Do not alter version. Push to `main` deploys https://ungoldman.com/
 - No AI attribution in commits.
 - Breaking changes discouraged. They need `BREAKING CHANGE:` footer.
 - Plain JS modules. No build. Relative paths, so page drops into any static site.
+- On ungoldman.com the page joins the site's router, see the page contract in `ungoldman.github.io/AGENTS.md`. `/router.js` and `/router/controls.js` are absent on the dev server and that is fine. `mount()` in `src/app.js` runs again in the same document, and what it returns undoes everything outside the page's own nodes.
 - No stylesheets or scripts from elsewhere. The page carries its own tokens. Data and images come from CelesTrak, NOAA STAR, NICT, CIRA SLIDER, and NASA Worldview at runtime.
 - Few comments, kept trim.
 - 100% coverage on `src/orbit.js`, `src/view.js`, `src/fleet.js`, and `src/server.js`. `src/app.js` is checked in browser.

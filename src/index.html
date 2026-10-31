@@ -15,6 +15,7 @@
 <meta property="og:image:height" content="630">
 <meta property="og:image:alt" content="The Earth half in daylight, ringed by the geostationary belt and labeled weather and imaging satellites">
 <meta name="twitter:card" content="summary_large_image">
+<script type="module" src="/router.js"></script>
 <style>
   /* palette and type follow ungoldman.com. Light theme swaps the same
      tokens, from the OS setting until L or its button picks one. */
@@ -105,6 +106,7 @@
   #home { display: inline-flex; align-items: center; color: var(--dim); text-decoration: none; }
   #home:hover, #home:focus-visible { color: var(--fg); }
   h1 { margin: 0; font-size: 1.2rem; font-weight: 600; letter-spacing: 0.12em; text-transform: uppercase; white-space: nowrap; }
+  header h1 { line-height: 1.4; }
   #menus, #controls { display: flex; gap: 6px; }
   select {
     height: 32px;
@@ -344,5 +346,8 @@
   <p>Inspired by <a href="https://github.com/ungoldman/latest-earth">latest-earth</a>, written 2022. Built on October 26th 2026 with Claude Code (Opus 5.5).</p>
 </div>
 
-<script type="module" src="app.js"></script>
+<script type="module">
+  import { mount } from './app.js'
+  addEventListener('router:leave', mount(), { once: true })
+</script>
 </html>
