@@ -394,6 +394,30 @@
       linear-gradient(var(--c), var(--c)) top right / 1px var(--k),
       linear-gradient(var(--c), var(--c)) bottom left / var(--k) 1px,
       linear-gradient(var(--c), var(--c)) bottom left / 1px var(--k),
+  /* close: the top right corner mark closed into a square, crossed corner to
+     corner, with a wider reach for a finger */
+  #card .close {
+    --x:
+      linear-gradient(45deg, transparent calc(50% - 0.6px), var(--c) calc(50% - 0.6px) calc(50% + 0.6px), transparent calc(50% + 0.6px)),
+      linear-gradient(-45deg, transparent calc(50% - 0.6px), var(--c) calc(50% - 0.6px) calc(50% + 0.6px), transparent calc(50% + 0.6px));
+    position: absolute;
+    top: 0;
+    right: 0;
+    box-sizing: border-box;
+    width: var(--k);
+    height: var(--k);
+    padding: 0;
+    border: 0;
+    border-left: 1px solid var(--c);
+    border-bottom: 1px solid var(--c);
+    border-radius: 0;
+    background: var(--x);
+    background-origin: border-box;
+  }
+  #card .close:hover,
+  #card .close:focus-visible { background: var(--x), var(--hover); background-origin: border-box; }
+  #card .close::before { content: ""; position: absolute; inset: -10px; }
+  #card h2 { padding-right: 16px; }
       linear-gradient(var(--c), var(--c)) bottom right / var(--k) 1px,
       linear-gradient(var(--c), var(--c)) bottom right / 1px var(--k),
       var(--dot) top / 100% 1px,
@@ -561,7 +585,7 @@
 
 <section id="card" hidden aria-live="polite">
   <div class="body">
-    <h2><a id="card-wiki" target="_blank" rel="noopener"><span id="card-name"></span></a><button class="small" data-action="deselect">Close</button></h2>
+    <h2><a id="card-wiki" target="_blank" rel="noopener"><span id="card-name"></span></a><button class="close" data-action="deselect" title="Close (Esc)" aria-label="Close"></button></h2>
     <p class="sub"><span id="card-by"></span>, <span id="card-orbit"></span></p>
     <dl class="stats">
       <div><dt>height</dt><dd><span id="card-alt"></span><small>km</small></dd></div>
