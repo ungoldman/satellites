@@ -1,6 +1,8 @@
 // Which satellites, who flies them, and where their pictures are. No DOM, so
 // it runs in Node too.
 
+import { DAY, HOUR } from './time.js'
+
 // CelesTrak groups that hold the fleet between them
 export const GROUPS = ['weather', 'resource']
 export const SOURCE = 'https://celestrak.org/NORAD/elements/gp.php'
@@ -8,14 +10,14 @@ export const groupUrl = (group) => `${SOURCE}?GROUP=${group}&FORMAT=json`
 
 // CelesTrak updates elements about every two hours and asks clients to
 // fetch no more often than that
-export const FRESH = 2 * 3600000
+export const FRESH = 2 * HOUR
 // a copy published with the page older than this is passed over for CelesTrak
-export const STALE = 24 * 3600000
+export const STALE = DAY
 
 // Elements older than this are not trusted for now: the tests hold the
 // orbits to SGP4 for three days, and past that a polar imager drifts far
 // along its track. The page locks its clock to the data's own time instead.
-export const TRUSTED = 3 * 86400000
+export const TRUSTED = 3 * DAY
 
 // whether a snapshot of the groups, { at, groups }, is younger than age
 export const fresh = (snap, now, age = FRESH) => Boolean(snap?.groups) && now - snap.at < age
@@ -145,7 +147,7 @@ export function slot(ms, every, lag, back = 0) {
 export function goes(sat, ms, back = 0) {
   const { ms: at } = slot(ms, 10, GOES_LAG, back)
   const d = new Date(at)
-  const doy = Math.floor((at - Date.UTC(d.getUTCFullYear(), 0, 1)) / 86400000) + 1
+  const doy = Math.floor((at - Date.UTC(d.getUTCFullYear(), 0, 1)) / DAY) + 1
   const stamp = `${d.getUTCFullYear()}${String(doy).padStart(3, '0')}${pad(d.getUTCHours())}${pad(d.getUTCMinutes())}`
   return {
     src: `https://cdn.star.nesdis.noaa.gov/${sat}/ABI/FD/GEOCOLOR/${stamp}_${sat}-ABI-FD-GEOCOLOR-678x678.jpg`,
@@ -167,7 +169,7 @@ export function slider(sat, every, ms, back = 0) {
 
 // the last whole UTC day before ms, which daily composites have finished
 export function yesterday(ms) {
-  return new Date(ms - 86400000).toISOString().slice(0, 10)
+  return new Date(ms - DAY).toISOString().slice(0, 10)
 }
 
 // a box of 30° by 20° about a point, kept inside the map's edges

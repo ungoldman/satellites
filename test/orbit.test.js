@@ -4,6 +4,7 @@ import { test } from 'node:test'
 import fc from 'fast-check'
 import * as sgp4 from 'satellite.js'
 import {
+  centered,
   elements,
   geodetic,
   gmst,
@@ -235,4 +236,18 @@ test('a pass is the daylight moment a satellite came nearest a point', () => {
 test('there is no pass in a polar night', () => {
   const el = elements(at(43013))
   assert.equal(passOver(el, 89, 0, '2026-12-21'), null)
+})
+
+test('an angle is brought within half a turn of zero', () => {
+  assert.equal(centered(3 * Math.PI), -Math.PI)
+  assert.ok(Math.abs(centered(-0.25) + 0.25) < 1e-12)
+  assert.equal(centered(190, 360), -170)
+  assert.equal(centered(-540, 360), -180)
+  fc.assert(
+    fc.property(fc.double({ min: -1e4, max: 1e4, noNaN: true }), (a) => {
+      const c = centered(a, 360)
+      const turns = (a - c) / 360
+      return c >= -180 && c < 180 && Math.abs(turns - Math.round(turns)) < 1e-9
+    })
+  )
 })

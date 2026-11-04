@@ -2,6 +2,7 @@ import { LAND } from './coast.js'
 import { fresh, pick, picture, STALE, snapshot, TRUSTED, wikiUrl } from './fleet.js'
 import { createGlobe } from './globe.js'
 import {
+  centered,
   elements,
   geodetic,
   gmst,
@@ -10,6 +11,7 @@ import {
   passOver,
   period,
   position,
+  RAD,
   RE,
   SCALES,
   scaled,
@@ -89,7 +91,6 @@ const BACK = 6
 const PLUMB = 24
 // samples in each trail
 const TRAIL = 20
-const RAD = Math.PI / 180
 const GEO_KM = 42164
 // the geostationary belt
 const BELT = Array.from({ length: 145 }, (_, k) => [
@@ -103,18 +104,19 @@ export function mount() {
   const on = (type, listener) => addEventListener(type, listener, { signal: teardown.signal })
   // 0 colour, 1 mono
   let LOOK = 0
-  const canvas = document.getElementById('canvas')
-  const globeCanvas = document.getElementById('globe')
+  const $ = (id) => document.getElementById(id)
+  const canvas = $('canvas')
+  const globeCanvas = $('globe')
   const ctx = canvas.getContext('2d')
-  const credits = document.getElementById('credits')
-  const speeds = document.getElementById('speeds')
-  const scrub = document.getElementById('scrub')
-  const days = document.getElementById('days')
-  const gap = document.getElementById('gap')
-  const styles = document.getElementById('styles')
-  const timebar = document.getElementById('timebar')
-  const staleNote = document.getElementById('stale')
-  const roster = document.getElementById('roster')
+  const credits = $('credits')
+  const speeds = $('speeds')
+  const scrub = $('scrub')
+  const days = $('days')
+  const gap = $('gap')
+  const styles = $('styles')
+  const timebar = $('timebar')
+  const staleNote = $('stale')
+  const roster = $('roster')
   const themeColor = document.querySelector('meta[name="theme-color"]')
   const buttons = Object.fromEntries(
     [...document.querySelectorAll('[data-action]:not([inert] *)')].map((el) => [
@@ -122,7 +124,6 @@ export function mount() {
       el
     ])
   )
-  const $ = (id) => document.getElementById(id)
   const readout = {
     time: $('readout-time'),
     rate: $('readout-rate'),
@@ -234,11 +235,12 @@ export function mount() {
   } catch (err) {
     console.error(err)
   }
+  const narrow = matchMedia('(max-width: 600px)')
+
   // heights at zoom 2 for everyone, then zoom 3 once the globe is drawn large
   // enough to show it, never on a phone. A level only replaces a coarser one.
-  const phone = matchMedia('(max-width: 600px)').matches
   let terrainLevel = 0
-  let detailAsked = phone
+  let detailAsked = narrow.matches
   function terrainAt(level) {
     loadTerrain(teardown.signal, level)
       .then((t) => {
@@ -249,8 +251,6 @@ export function mount() {
       .catch(() => {})
   }
   if (gl) terrainAt(PHONE_ZOOM)
-
-  const narrow = matchMedia('(max-width: 600px)')
 
   // where the canvases start down the page, so DOM boxes can be drawn against
   // them
@@ -719,7 +719,7 @@ export function mount() {
       const now = placeAt(x, y)
       if (!now) return false
       const north = place.lat - now.lat
-      const east = ((((place.lon - now.lon + 180) % 360) + 360) % 360) - 180
+      const east = centered(place.lon - now.lon, 360)
       if (Math.abs(north) + Math.abs(east) < 1e-4) break
       orientation = steer(orientation, gmst(sim), north, east)
     }
@@ -752,15 +752,9 @@ export function mount() {
     ctx.fill()
   }
 
-  function underCursor(z, g) {
-    if (!cursor) return null
-    const r = pixels(width, height, z)
-    return ground(orientation, g, (cursor.x - width / 2) / r, (cursor.y - height / 2) / r)
-  }
-
   let cursorText = ''
-  function drawCursor(z, g) {
-    const spot = underCursor(z, g)
+  function drawCursor() {
+    const spot = cursor && placeAt(cursor.x, cursor.y)
     const text = spot ? `${ns(spot.lat)}  ${ew(spot.lon)}` : ''
     if (text !== cursorText) {
       cursorText = text
@@ -884,7 +878,7 @@ export function mount() {
     drawLeader()
     drawSats()
     drawHere(z)
-    drawCursor(z, g)
+    drawCursor()
   }
 
   const fmt = (n, digits = 0) =>
@@ -1069,9 +1063,22 @@ export function mount() {
     showReadout()
   }
 
-  function readTheme() {
+  // localStorage can be missing or full, and the page works without it
+  const stored = (key) => {
     try {
-      return localStorage.getItem(THEME_KEY)
+      return localStorage.getItem(key)
+    } catch {
+      return null
+    }
+  }
+  const store = (key, value) => {
+    try {
+      localStorage.setItem(key, value)
+    } catch {}
+  }
+  const parsed = (key) => {
+    try {
+      return JSON.parse(stored(key))
     } catch {
       return null
     }
@@ -1115,18 +1122,7 @@ export function mount() {
         monoNight: Number(token('--mono-night'))
       }
     }
-    if (!save) return
-    try {
-      localStorage.setItem(THEME_KEY, theme)
-    } catch {}
-  }
-
-  function readStyle() {
-    try {
-      return localStorage.getItem(STYLE_KEY)
-    } catch {
-      return null
-    }
+    if (save) store(THEME_KEY, theme)
   }
 
   function setStyle(style, save) {
@@ -1135,10 +1131,7 @@ export function mount() {
     for (const b of styles.children)
       b.setAttribute('aria-pressed', String(b.dataset.stylePick === style))
     if (document.documentElement.dataset.theme) setTheme(document.documentElement.dataset.theme)
-    if (!save) return
-    try {
-      localStorage.setItem(STYLE_KEY, style)
-    } catch {}
+    if (save) store(STYLE_KEY, style)
   }
 
   const actions = {
@@ -1392,29 +1385,24 @@ export function mount() {
   // the view is kept turned back to the Earth's frame, so a reload faces the
   // same ground whatever the time
   function save() {
-    try {
-      localStorage.setItem(
-        VIEW_KEY,
-        JSON.stringify({
-          q: keep(orientation, gmst(sim)),
-          zoom,
-          scale,
-          rate,
-          // a locked clock is the data's, not the viewer's, so it is not kept
-          paused: locked === null && paused,
-          offset: locked !== null ? 0 : sim - Date.now(),
-          at: paused && locked === null ? sim : null,
-          pick: selected >= 0 ? sats[selected].name : null
-        })
-      )
-    } catch {}
+    store(
+      VIEW_KEY,
+      JSON.stringify({
+        q: keep(orientation, gmst(sim)),
+        zoom,
+        scale,
+        rate,
+        // a locked clock is the data's, not the viewer's, so it is not kept
+        paused: locked === null && paused,
+        offset: locked !== null ? 0 : sim - Date.now(),
+        at: paused && locked === null ? sim : null,
+        pick: selected >= 0 ? sats[selected].name : null
+      })
+    )
   }
 
   function restore() {
-    let v = null
-    try {
-      v = JSON.parse(localStorage.getItem(VIEW_KEY))
-    } catch {}
+    const v = parsed(VIEW_KEY)
     if (!Array.isArray(v?.q) || v.q.length !== 4) return null
     const wall = Date.now()
     sim = within(v.at ?? wall + (Number(v.offset) || 0), wall)
@@ -1443,7 +1431,7 @@ export function mount() {
     // the camera turns with the Earth, so the globe holds still and only the
     // satellites and the Sun move, at any speed and across any jump in time
     const g = gmst(sim)
-    const dg = ((((g - turned + Math.PI) % (2 * Math.PI)) + 2 * Math.PI) % (2 * Math.PI)) - Math.PI
+    const dg = centered(g - turned)
     turned = g
     if (dg) orientation = multiply(orientation, spinBy(dg))
     // held keys move the view over the ground, north and east
@@ -1474,14 +1462,6 @@ export function mount() {
       save()
     }
     raf = requestAnimationFrame(frame)
-  }
-
-  function readCache() {
-    try {
-      return JSON.parse(localStorage.getItem(CACHE_KEY))
-    } catch {
-      return null
-    }
   }
 
   // the list down the left, geostationary west to east, then the polar
@@ -1534,7 +1514,7 @@ export function mount() {
   // CelesTrak to one fetch every two hours.
   async function load() {
     const now = Date.now()
-    const cached = readCache()
+    const cached = parsed(CACHE_KEY)
     let snap = fresh(cached, now) ? cached : null
     let published = null
     if (!snap) {
@@ -1553,11 +1533,7 @@ export function mount() {
     }
     if (!snap) return
     if (now - snap.at > TRUSTED) lock(snap.at)
-    if (snap !== cached) {
-      try {
-        localStorage.setItem(CACHE_KEY, JSON.stringify(snap))
-      } catch {}
-    }
+    if (snap !== cached) store(CACHE_KEY, JSON.stringify(snap))
     sats = pick(snap.groups).map((sat) => {
       const el = elements(sat.omm)
       return { ...sat, el, geo: stationary(el) }
@@ -1568,8 +1544,10 @@ export function mount() {
     if (index >= 0) select(index, false)
   }
 
-  setStyle(readStyle() === 'mono' ? 'mono' : 'color')
-  setTheme(readTheme() ?? (matchMedia('(prefers-color-scheme: light)').matches ? 'light' : 'dark'))
+  setStyle(stored(STYLE_KEY) === 'mono' ? 'mono' : 'color')
+  setTheme(
+    stored(THEME_KEY) ?? (matchMedia('(prefers-color-scheme: light)').matches ? 'light' : 'dark')
+  )
   on('resize', resize)
   resize()
   const kept = restore()

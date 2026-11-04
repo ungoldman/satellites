@@ -1,6 +1,7 @@
 // The clock in words and the time bar's scale. No DOM, so it runs in Node too.
 
-export const DAY = 86400000
+export const HOUR = 3600000
+export const DAY = 24 * HOUR
 // how far the time bar reaches either side of now
 export const WEEK = 7 * DAY
 

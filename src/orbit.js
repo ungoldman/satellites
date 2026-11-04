@@ -1,6 +1,8 @@
 // Orbits from CelesTrak's mean elements, the Earth's turn, and the Sun. No
 // DOM, so it runs in Node too. Distances are km unless named in Earth radii.
 
+import { DAY } from './time.js'
+
 // WGS 84
 export const MU = 398600.4418
 export const RE = 6378.137
@@ -8,10 +10,11 @@ const FLAT = 1 / 298.257223563
 const J2 = 1.08262668e-3
 
 const TAU = 2 * Math.PI
-const RAD = Math.PI / 180
-const DAY = 86400000
+export const RAD = Math.PI / 180
 
 const wrap = (a) => ((a % TAU) + TAU) % TAU
+// an angle brought within half a turn either side of zero, radians by default
+export const centered = (a, turn = TAU) => ((((a + turn / 2) % turn) + turn) % turn) - turn / 2
 
 // one CelesTrak OMM record, angles in radians and mean motion per minute
 export function elements(omm) {
@@ -94,7 +97,7 @@ export function gmst(ms) {
 
 // latitude and longitude in degrees and height above the WGS 84 ellipsoid
 export function geodetic([x, y, z], ms) {
-  const lon = ((((Math.atan2(y, x) - gmst(ms)) / RAD + 540) % 360) + 360) % 360
+  const lon = centered((Math.atan2(y, x) - gmst(ms)) / RAD, 360)
   const e2 = FLAT * (2 - FLAT)
   const r = Math.hypot(x, y)
   let lat = Math.atan2(z, r)
@@ -103,7 +106,7 @@ export function geodetic([x, y, z], ms) {
     c = 1 / Math.sqrt(1 - e2 * Math.sin(lat) ** 2)
     lat = Math.atan2(z + RE * c * e2 * Math.sin(lat), r)
   }
-  return { lat: lat / RAD, lon: lon - 180, alt: r / Math.cos(lat) - RE * c }
+  return { lat: lat / RAD, lon, alt: r / Math.cos(lat) - RE * c }
 }
 
 // Unit vector toward the Sun in the inertial frame at ms, good to about a
