@@ -41,7 +41,7 @@ Keep free rotations of `orientation` out of input handling. The one `multiply` o
 
 ## Layout
 
-- `src/index.html`: markup, styles, theme and style tokens (colour and mono, each light and dark), the satellite list, the card, the time bar, the ? panel with explainer and credits.
+- `src/index.html`: markup, styles, theme and style tokens (colour and mono, each light and dark), the satellite list, the card, the time bar, the ? panel with explainer and credits. Its last updated date is stamped by `pages.yml` from the last commit to `src/`, so the committed date is only what the dev server shows.
 - `src/og.png`: share image, a 1200x630 screenshot with the header and readout hidden.
 - `src/orbit.js`: OMM elements, two-body plus J2 propagation, sidereal time, geodetic, Sun direction, scales, the ground a satellite sees, sunlight, and the timing of a daylight pass. No DOM.
 - `src/view.js`: quaternion camera, projection, ray-sphere hit and occlusion, fling, key map, the view kept with the Earth, zoom toward a point, drag and contour scale with zoom, the latitude ring. No DOM.

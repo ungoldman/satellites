@@ -26,8 +26,17 @@ jobs:
       url: ${{ steps.deployment.outputs.page_url }}
 
     steps:
+      # full history, so the page can carry the date src/ last changed
       - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
       - run: mkdir _site && cp src/index.html src/app.js src/coast.js src/fleet.js src/globe.js src/orbit.js src/terrain.js src/time.js src/view.js src/og.png _site/
+      # the About panel's last updated date, from src/ so the two hourly
+      # element refreshes leave it alone
+      - run: |
+          d=$(git log -1 --format=%cs -- src)
+          sed -i "s|<time id=\"updated\" datetime=\"[^\"]*\">[^<]*</time>|<time id=\"updated\" datetime=\"$d\">$d</time>|" _site/index.html
+          grep -q "datetime=\"$d\"" _site/index.html
       # carry the published copy forward, so a failed fetch redeploys the last
       # good one rather than dropping it
       - run: curl -fsS https://ungoldman.com/satellites/gp.json -o _site/gp.json || true
