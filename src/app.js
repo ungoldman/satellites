@@ -1514,10 +1514,6 @@ export function mount() {
     $('roster-leo-count').textContent = String(lists.leo.children.length)
   }
 
-  // Elements from this browser's copy while it is fresh, else the copy the
-  // site publishes every two hours, else CelesTrak itself, else whatever older
-  // copy there is. Visitors reading the published copy keep the load on
-  // CelesTrak to one fetch every two hours.
   // Hold the clock at the data's own time, the satellites where they were
   // then, with the time controls off and the time bar saying why.
   function lock(at) {
@@ -1532,6 +1528,10 @@ export function mount() {
     showReadout()
   }
 
+  // Elements from this browser's copy while it is fresh, else the copy the
+  // site publishes every two hours, else CelesTrak itself, else whatever older
+  // copy there is. Visitors reading the published copy keep the load on
+  // CelesTrak to one fetch every two hours.
   async function load() {
     const now = Date.now()
     const cached = readCache()
