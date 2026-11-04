@@ -176,6 +176,11 @@ export const RATE_KEYS = {
   Comma: -1,
   Period: 1
 }
+// and along the time bar, a step of it at a time
+export const TIME_KEYS = {
+  ArrowLeft: -1,
+  ArrowRight: 1
+}
 
 export const ACTIONS = {
   Space: 'pause',

@@ -51,6 +51,7 @@ import {
   slow,
   spinBy,
   steer,
+  TIME_KEYS,
   toScreen,
   unkeep,
   ZOOM_KEYS,
@@ -1251,7 +1252,13 @@ export function mount() {
     } else if (ZOOM_KEYS[code]) zoomAt(ZOOM_KEYS[code], width / 2, height / 2)
     else if (PICK_KEYS[code]) step(selected, PICK_KEYS[code])
     else if (RATE_KEYS[code]) setRate(rate + RATE_KEYS[code])
-    else if (ACTIONS[code]) {
+    else if (TIME_KEYS[code]) {
+      // the bar moves itself while it has focus
+      if (event.target === scrub || locked !== null) return
+      if (TIME_KEYS[code] < 0) scrub.stepDown()
+      else scrub.stepUp()
+      scrub.dispatchEvent(new Event('input'))
+    } else if (ACTIONS[code]) {
       if (code === 'Escape' && credits.matches(':popover-open')) return
       actions[ACTIONS[code]]()
     } else return
