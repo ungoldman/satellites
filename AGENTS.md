@@ -4,7 +4,7 @@
 - run: `npm start` (port 4173. `PORT` changes it. `-- --no-open` skips browser.)
 - test: `npm test`, `npm run coverage`
 - format: `npm run format`
-- data for the dev server: `npm run elements` writes `src/gp.json`, `npm run bake` writes `src/terrain-2.png` and `src/terrain-3.png`. All three are gitignored.
+- data for the dev server: `npm run elements` writes `src/gp.json`, `npm run bake` writes `src/terrain-2.webp` and `src/terrain-3.webp` and needs `cwebp` (`brew install webp`). All three are gitignored.
 
 Node 22.12+. Do not alter version. Push to `main` deploys https://ungoldman.com/satellites via `pages.yml`.
 
@@ -47,8 +47,8 @@ Keep free rotations of `orientation` out of input handling. The one `multiply` o
 - `src/view.js`: quaternion camera, projection, ray-sphere hit and occlusion, fling, key map, the view kept with the Earth, zoom toward a point, drag and contour scale with zoom, the latitude ring. No DOM.
 - `src/fleet.js`: the satellites shown, CelesTrak groups, image and link builders per source, slot guessing for full disks with the time of each. No DOM.
 - `src/time.js`: the clock in words and the time bar's week either side of now. No DOM.
-- `src/terrain.js`: Terrarium heights decoded into one Mercator square of the world, zoom 3, or zoom 2 on phones. Loads the stitched `terrain-<zoom>.png` beside it in one request and falls back to the 64 or 16 tiles on AWS when that file is missing. No DOM of its own.
-- `src/bake.js`: stitches the tiles into `terrain-2.png` and `terrain-3.png`, with its own PNG reader and writer on `node:zlib`. The Pages workflow carries the published copies forward and bakes only a missing one, since the heights do not change. Not covered by tests, like `src/elements.js`.
+- `src/terrain.js`: Terrarium heights decoded into one Mercator square of the world. Loads the stitched `terrain-<zoom>.webp` beside it in one request and falls back to the 64 or 16 tiles on AWS when that file is missing. No DOM of its own. `src/app.js` loads zoom 2 first, about 1 MB, and zoom 3, about 3.8 MB, only once the globe passes `DETAIL_PX` device pixels per Earth radius, never on a phone.
+- `src/bake.js`: stitches the tiles into `terrain-2.webp` and `terrain-3.webp`, reading them with its own PNG reader on `node:zlib` and encoding with `cwebp -lossless -exact`, which keeps every height. The Pages workflow carries the published copies forward and bakes only a missing one, since the heights do not change. Not covered by tests, like `src/elements.js`.
 - `src/globe.js`: the WebGL2 globe, ray-cast per pixel, its colour and mono styles in one shader, with height, contour, grid, and terminator.
 - `src/coast.js`: Natural Earth 1:110m land rings, generated once. Not linted. The globe fills them into a lat, lon mask and strokes them as coastlines.
 - `src/app.js`: wires it together. Overlay canvas with satellites, trails, labels, belt dial, latitude ring, view cone, and leader line, the card and list, the time bar, steering from keys, touch, pinch, and wheel, style and theme, saved view, location, element cache. Keys match `event.code`.

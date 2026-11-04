@@ -1,12 +1,18 @@
-// Stitches the Terrarium tiles into one PNG per level, terrain-2.png and
-// terrain-3.png, so the page loads the world in one request: from the Pages
-// workflow, and by hand for the dev server. The heights do not change, so a
-// file already there is kept. A failed fetch writes nothing and still exits
-// cleanly, and the page falls back to the tiles.
-import { readFile, writeFile } from 'node:fs/promises'
+// Stitches the Terrarium tiles into one lossless WebP per level,
+// terrain-2.webp and terrain-3.webp, so the page loads the world in one
+// request: from the Pages workflow, and by hand for the dev server. Needs
+// cwebp. The heights do not change, so a file already there is kept. A failed
+// fetch or encode writes nothing and still exits cleanly, and the page falls
+// back to the tiles.
+import { execFile } from 'node:child_process'
+import { readFile, rm, writeFile } from 'node:fs/promises'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
+import { promisify } from 'node:util'
 import { crc32, deflateSync, inflateSync } from 'node:zlib'
 import { PHONE_ZOOM, TERRAIN_ZOOM, TILE, tileUrl } from './terrain.js'
 
+const run = promisify(execFile)
 const dir = process.argv[2] ?? new URL('.', import.meta.url).pathname
 const SIGNATURE = Buffer.from([137, 80, 78, 71, 13, 10, 26, 10])
 
@@ -70,35 +76,11 @@ function chunk(type, body) {
   return Buffer.concat([head, body, crc])
 }
 
-// RGB rows to a PNG, each row filtered whichever way leaves the least to store
+// RGB rows to a plain PNG, only for cwebp to read, so nothing is filtered
 function writePng(width, height, rgb) {
   const stride = width * 3
   const out = Buffer.alloc(height * (stride + 1))
-  const zero = Buffer.alloc(stride)
-  const tries = Array.from({ length: 5 }, () => Buffer.alloc(stride))
-  for (let y = 0; y < height; y++) {
-    const row = rgb.subarray(y * stride, (y + 1) * stride)
-    const prev = y ? rgb.subarray((y - 1) * stride, y * stride) : zero
-    let best = 0
-    let least = Infinity
-    for (let f = 0; f < 5; f++) {
-      let sum = 0
-      for (let i = 0; i < stride; i++) {
-        const a = i >= 3 ? row[i - 3] : 0
-        const b = prev[i]
-        const c = i >= 3 ? prev[i - 3] : 0
-        const v = (row[i] - [0, a, b, (a + b) >> 1, paeth(a, b, c)][f]) & 255
-        tries[f][i] = v
-        sum += v < 128 ? v : 256 - v
-      }
-      if (sum < least) {
-        least = sum
-        best = f
-      }
-    }
-    out[y * (stride + 1)] = best
-    tries[best].copy(out, y * (stride + 1) + 1)
-  }
+  for (let y = 0; y < height; y++) rgb.copy(out, y * (stride + 1) + 1, y * stride, (y + 1) * stride)
   const head = Buffer.alloc(13)
   head.writeUInt32BE(width, 0)
   head.writeUInt32BE(height, 4)
@@ -106,7 +88,7 @@ function writePng(width, height, rgb) {
   return Buffer.concat([
     SIGNATURE,
     chunk('IHDR', head),
-    chunk('IDAT', deflateSync(out, { level: 9 })),
+    chunk('IDAT', deflateSync(out, { level: 1 })),
     chunk('IEND', Buffer.alloc(0))
   ])
 }
@@ -136,16 +118,23 @@ async function bake(level) {
 }
 
 for (const level of [PHONE_ZOOM, TERRAIN_ZOOM]) {
-  const out = `${dir.replace(/\/$/, '')}/terrain-${level}.png`
+  const out = `${dir.replace(/\/$/, '')}/terrain-${level}.webp`
   try {
-    readPng(await readFile(out))
-    console.log(`${out}: there, kept`)
-    continue
+    const head = await readFile(out)
+    if (head.toString('latin1', 0, 4) === 'RIFF' && head.toString('latin1', 8, 12) === 'WEBP') {
+      console.log(`${out}: there, kept`)
+      continue
+    }
   } catch {}
+  const png = join(tmpdir(), `terrain-${level}-${process.pid}.png`)
   try {
-    await writeFile(out, await bake(level))
+    await writeFile(png, await bake(level))
+    // -exact keeps every byte, since the colours are heights
+    await run('cwebp', ['-quiet', '-lossless', '-z', '9', '-exact', png, '-o', out])
     console.log(`${out}: written`)
   } catch (err) {
     console.warn(`${out}: not written, ${err.message}`)
+  } finally {
+    await rm(png, { force: true })
   }
 }

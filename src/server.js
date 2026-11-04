@@ -15,8 +15,8 @@ const FILES = {
   // written by `npm run elements`, absent until then
   '/gp.json': ['gp.json', 'application/json'],
   // written by `npm run bake`, absent until then
-  '/terrain-2.png': ['terrain-2.png', 'image/png'],
-  '/terrain-3.png': ['terrain-3.png', 'image/png']
+  '/terrain-2.webp': ['terrain-2.webp', 'image/webp'],
+  '/terrain-3.webp': ['terrain-3.webp', 'image/webp']
 }
 
 export function createSatelliteServer(root = new URL('./', import.meta.url)) {

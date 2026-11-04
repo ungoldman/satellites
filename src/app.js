@@ -21,7 +21,7 @@ import {
   toward,
   track
 } from './orbit.js'
-import { loadTerrain, PHONE_ZOOM, TERRAIN_ZOOM } from './terrain.js'
+import { DETAIL_PX, loadTerrain, PHONE_ZOOM, TERRAIN_ZOOM } from './terrain.js'
 import { away, gap as gapWords, midnights, SPEEDS, share, utc, WEEK, within } from './time.js'
 import {
   ACTIONS,
@@ -234,12 +234,21 @@ export function mount() {
   } catch (err) {
     console.error(err)
   }
-  if (gl) {
-    const phone = matchMedia('(max-width: 600px)').matches
-    loadTerrain(teardown.signal, phone ? PHONE_ZOOM : TERRAIN_ZOOM)
-      .then((t) => gl.terrain(t))
+  // heights at zoom 2 for everyone, then zoom 3 once the globe is drawn large
+  // enough to show it, never on a phone. A level only replaces a coarser one.
+  const phone = matchMedia('(max-width: 600px)').matches
+  let terrainLevel = 0
+  let detailAsked = phone
+  function terrainAt(level) {
+    loadTerrain(teardown.signal, level)
+      .then((t) => {
+        if (level <= terrainLevel) return
+        terrainLevel = level
+        gl.terrain(t)
+      })
       .catch(() => {})
   }
+  if (gl) terrainAt(PHONE_ZOOM)
 
   const narrow = matchMedia('(max-width: 600px)')
 
@@ -801,6 +810,10 @@ export function mount() {
     // the shader traces the coast from heights once the globe is large enough
     // to hold them, the vector coast stands in below that
     const rPx = pixels(width, height, z)
+    if (gl && !detailAsked && rPx * dpr > DETAIL_PX) {
+      detailAsked = true
+      terrainAt(TERRAIN_ZOOM)
+    }
     const sharp = Math.min(1, Math.max(0, (rPx - 220) / 140))
     if (gl) {
       gl.draw({

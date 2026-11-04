@@ -36,8 +36,11 @@ jobs:
       # tiles are fetched only when one is missing
       - run: |
           for z in 2 3; do
-            curl -fsS --remove-on-error https://ungoldman.com/satellites/terrain-$z.png -o _site/terrain-$z.png || true
+            curl -fsS --remove-on-error https://ungoldman.com/satellites/terrain-$z.webp -o _site/terrain-$z.webp || true
           done
+          if [ ! -s _site/terrain-2.webp ] || [ ! -s _site/terrain-3.webp ]; then
+            sudo apt-get update -qq && sudo apt-get install -y -qq webp
+          fi
       - run: node src/bake.js _site
       - uses: actions/configure-pages@v6
       - uses: actions/upload-pages-artifact@v5

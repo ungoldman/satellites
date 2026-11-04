@@ -7,14 +7,17 @@ export const TERRAIN = 'https://s3.amazonaws.com/elevation-tiles-prod/terrarium'
 export const TERRAIN_ZOOM = 3
 export const PHONE_ZOOM = 2
 export const TILE = 256
+// Device px per Earth radius past which zoom 3 shows more than zoom 2. Zoom 2
+// is 1024 texels round the equator, about 163 to the radian.
+export const DETAIL_PX = 200
 
 export const decode = (r, g, b) => r * 256 + g + b / 256 - 32768
 
 export const tileUrl = (level, x, y) => `${TERRAIN}/${level}/${x}/${y}.png`
 
-// the tiles at a level stitched into one file beside the page by src/bake.js,
-// one request in place of up to 64
-export const bakedUrl = (level) => new URL(`terrain-${level}.png`, import.meta.url).href
+// the tiles at a level stitched into one lossless WebP beside the page by
+// src/bake.js, one request in place of up to 64
+export const bakedUrl = (level) => new URL(`terrain-${level}.webp`, import.meta.url).href
 
 // The default tools, the browser's: fetch, and a canvas to lay tiles on.
 const browser = {

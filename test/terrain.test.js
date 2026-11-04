@@ -85,7 +85,7 @@ test('the world is 64 tiles, and 16 on a phone', async () => {
 })
 
 test('the stitched file sits beside the module, named by level', () => {
-  assert.equal(bakedUrl(3), new URL('../src/terrain-3.png', import.meta.url).href)
+  assert.equal(bakedUrl(3), new URL('../src/terrain-3.webp', import.meta.url).href)
 })
 
 test('a published stitched file is one request in place of the tiles', async () => {
