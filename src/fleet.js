@@ -104,6 +104,8 @@ const pad = (n, width = 2) => String(n).padStart(width, '0')
 // source lets a page ask which is newest. So the card guesses the slot a lag
 // behind now, and back steps to earlier ones when it is not up yet.
 export const HIMAWARI_LAG = 30 * 60000
+// NOAA STAR posts each 10 minute full disk about 25 minutes after its slot
+export const GOES_LAG = 20 * 60000
 export const SLIDER_LAG = 40 * 60000
 export const MINUTE = 60000
 
@@ -111,8 +113,21 @@ export function slot(ms, every, lag, back = 0) {
   const step = every * MINUTE
   const d = new Date(Math.floor((ms - lag) / step) * step - back * step)
   return {
+    ms: d.getTime(),
     day: `${d.getUTCFullYear()}/${pad(d.getUTCMonth() + 1)}/${pad(d.getUTCDate())}`,
     time: `${pad(d.getUTCHours())}${pad(d.getUTCMinutes())}00`
+  }
+}
+
+// NOAA STAR's timestamped full disk, named year, day of year, hour, minute
+export function goes(sat, ms, back = 0) {
+  const { ms: at } = slot(ms, 10, GOES_LAG, back)
+  const d = new Date(at)
+  const doy = Math.floor((at - Date.UTC(d.getUTCFullYear(), 0, 1)) / 86400000) + 1
+  const stamp = `${d.getUTCFullYear()}${String(doy).padStart(3, '0')}${pad(d.getUTCHours())}${pad(d.getUTCMinutes())}`
+  return {
+    src: `https://cdn.star.nesdis.noaa.gov/${sat}/ABI/FD/GEOCOLOR/${stamp}_${sat}-ABI-FD-GEOCOLOR-678x678.jpg`,
+    taken: at
   }
 }
 
@@ -146,25 +161,30 @@ export function box(lat, lon) {
 export function picture(sat, { lat, lon }, ms, back = 0) {
   const { image } = sat
   if (image.kind === 'goes') {
+    const { src, taken } = goes(image.sat, ms, back)
     return {
-      src: `https://cdn.star.nesdis.noaa.gov/${image.sat}/ABI/FD/GEOCOLOR/678x678.jpg`,
+      src,
+      taken,
       href: `https://www.star.nesdis.noaa.gov/GOES/fulldisk.php?sat=G${image.sat.slice(4)}`,
-      caption: 'Latest full disk, GeoColor, NOAA STAR'
+      caption: 'full disk, GeoColor, NOAA STAR',
+      steps: true
     }
   }
   if (image.kind === 'himawari') {
     return {
       src: himawari(ms, back),
+      taken: slot(ms, 10, HIMAWARI_LAG, back).ms,
       href: 'https://himawari8.nict.go.jp/',
-      caption: 'Latest full disk, true color, NICT',
+      caption: 'full disk, true color, NICT',
       steps: true
     }
   }
   if (image.kind === 'slider') {
     return {
       src: slider(image.sat, image.every, ms, back),
+      taken: slot(ms, image.every, SLIDER_LAG, back).ms,
       href: `${SLIDER}/?sat=${image.sat}&sec=full_disk&p%5B0%5D=geocolor`,
-      caption: 'Latest full disk, GeoColor, CIRA SLIDER',
+      caption: 'full disk, GeoColor, CIRA SLIDER',
       steps: true
     }
   }
@@ -184,7 +204,10 @@ export function picture(sat, { lat, lon }, ms, back = 0) {
     return {
       src: `${SNAPSHOT}?${params}`,
       href: `${WORLDVIEW}?l=${image.layer}&t=${day}&v=${w},${s},${e},${n}`,
-      caption: `Below it on ${day}, daily true color, NASA Worldview`
+      day,
+      // the area pictured, so the pass over its middle can be timed
+      over: { lat: (s + n) / 2, lon: (w + e) / 2 },
+      caption: 'daily true color, NASA Worldview'
     }
   }
   return { src: null, href: image.href, caption: `Imagery on ${image.label}` }

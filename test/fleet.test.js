@@ -5,7 +5,9 @@ import {
   box,
   FLEET,
   FRESH,
+  GOES_LAG,
   GROUPS,
+  goes,
   groupUrl,
   HIMAWARI_LAG,
   himawari,
@@ -71,9 +73,17 @@ test('himawari steps back by ten-minute slots behind the lag', () => {
 
 test('slots round down to the cadence', () => {
   // 04:36 less 40 minutes is 03:56, slot 03:45 every 15 minutes
-  assert.deepEqual(slot(MS, 15, SLIDER_LAG), { day: '2026/10/27', time: '034500' })
-  assert.deepEqual(slot(MS, 15, SLIDER_LAG, 2), { day: '2026/10/27', time: '031500' })
-  assert.deepEqual(slot(MS, 10, SLIDER_LAG), { day: '2026/10/27', time: '035000' })
+  assert.deepEqual(slot(MS, 15, SLIDER_LAG), {
+    ms: Date.UTC(2026, 9, 27, 3, 45),
+    day: '2026/10/27',
+    time: '034500'
+  })
+  assert.deepEqual(slot(MS, 15, SLIDER_LAG, 2), {
+    ms: Date.UTC(2026, 9, 27, 3, 15),
+    day: '2026/10/27',
+    time: '031500'
+  })
+  assert.equal(slot(MS, 10, SLIDER_LAG).time, '035000')
 })
 
 test('SLIDER tiles name the day, the satellite, and the stamp', () => {
@@ -83,6 +93,8 @@ test('SLIDER tiles name the day, the satellite, and the stamp', () => {
   )
   const p = picture(byName('GK-2A'), { lat: 0, lon: 128 }, MS, 1)
   assert.equal(p.src, slider('gk2a', 10, MS, 1))
+  // 03:56 is slot 03:50, one back is 03:40
+  assert.equal(p.taken, Date.UTC(2026, 9, 27, 3, 40))
   assert.equal(
     p.href,
     'https://slider.cira.colostate.edu/?sat=gk2a&sec=full_disk&p%5B0%5D=geocolor'
@@ -101,16 +113,33 @@ test('a box stays inside the map', () => {
   assert.deepEqual(box(-89, -179), [-90, -180, -70, -150])
 })
 
-test('GOES gets the NOAA STAR full disk', () => {
-  const p = picture(byName('GOES-19'), { lat: 0, lon: -75 }, MS)
-  assert.equal(p.src, 'https://cdn.star.nesdis.noaa.gov/GOES19/ABI/FD/GEOCOLOR/678x678.jpg')
+test('GOES files are named by year, day of year, and time', () => {
+  // 04:36 less 20 minutes is 04:16, slot 04:10, day 300 of 2026
+  assert.deepEqual(goes('GOES19', MS), {
+    src: 'https://cdn.star.nesdis.noaa.gov/GOES19/ABI/FD/GEOCOLOR/20263000410_GOES19-ABI-FD-GEOCOLOR-678x678.jpg',
+    taken: Date.UTC(2026, 9, 27, 4, 10)
+  })
+  assert.match(goes('GOES18', MS, 2).src, /GOES18\/.+\/20263000350_GOES18-/)
+  // the first slot of a year is day 001, and the last of the one before is 365
+  assert.match(goes('GOES19', Date.UTC(2026, 0, 1, 0, 25)).src, /\/20260010000_/)
+  assert.match(goes('GOES19', Date.UTC(2026, 0, 1, 0, 15)).src, /\/20253652350_/)
+  assert.equal(GOES_LAG, 20 * MINUTE)
+})
+
+test('GOES gets the NOAA STAR full disk and steps back', () => {
+  const p = picture(byName('GOES-19'), { lat: 0, lon: -75 }, MS, 1)
+  assert.equal(p.src, goes('GOES19', MS, 1).src)
+  assert.equal(p.taken, Date.UTC(2026, 9, 27, 4, 0))
   assert.equal(p.href, 'https://www.star.nesdis.noaa.gov/GOES/fulldisk.php?sat=G19')
   assert.match(p.caption, /NOAA STAR/)
+  assert.ok(p.steps)
 })
 
 test('Himawari gets the NICT full disk', () => {
   const p = picture(byName('Himawari-9'), { lat: 0, lon: 140.8 }, MS, 2)
   assert.equal(p.src, himawari(MS, 2))
+  // 04:06 is slot 04:00, two back is 03:40
+  assert.equal(p.taken, Date.UTC(2026, 9, 27, 3, 40))
   assert.equal(p.href, 'https://himawari8.nict.go.jp/')
   assert.ok(p.steps)
 })
@@ -126,7 +155,12 @@ test('the polar imagers get Worldview below them', () => {
     p.href,
     'https://worldview.earthdata.nasa.gov/?l=VIIRS_NOAA20_CorrectedReflectance_TrueColor&t=2026-10-26&v=-137.7,35.5,-107.7,55.5'
   )
-  assert.match(p.caption, /2026-10-26/)
+  // a daily composite has no one time: the day, and the middle of the box
+  // so the pass over it can be timed
+  assert.equal(p.day, '2026-10-26')
+  assert.ok(Math.abs(p.over.lat - 45.5) < 1e-9 && Math.abs(p.over.lon + 122.7) < 1e-9)
+  assert.equal(p.taken, undefined)
+  assert.match(p.caption, /NASA Worldview/)
   assert.match(
     picture(byName('Aqua'), { lat: 0, lon: 0 }, MS).src,
     /MODIS_Aqua_CorrectedReflectance/
