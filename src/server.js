@@ -13,7 +13,10 @@ const FILES = {
   '/terrain.js': ['terrain.js', 'text/javascript; charset=utf-8'],
   '/time.js': ['time.js', 'text/javascript; charset=utf-8'],
   // written by `npm run elements`, absent until then
-  '/gp.json': ['gp.json', 'application/json']
+  '/gp.json': ['gp.json', 'application/json'],
+  // written by `npm run bake`, absent until then
+  '/terrain-2.png': ['terrain-2.png', 'image/png'],
+  '/terrain-3.png': ['terrain-3.png', 'image/png']
 }
 
 export function createSatelliteServer(root = new URL('./', import.meta.url)) {

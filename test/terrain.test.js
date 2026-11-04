@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict'
 import { test } from 'node:test'
 import {
+  bakedUrl,
   decode,
   loadTerrain,
   PHONE_ZOOM,
@@ -11,8 +12,9 @@ import {
 } from '../src/terrain.js'
 
 // stand-ins for the network and the canvas: every pixel reads 16.5 m, and
-// each tile asked for is noted
-function tools({ status = 200 } = {}) {
+// each file asked for is noted. No stitched file is published unless baked
+// says so.
+function tools({ status = 200, baked = 404 } = {}) {
   const asked = []
   const drawn = []
   return {
@@ -20,6 +22,10 @@ function tools({ status = 200 } = {}) {
     drawn,
     fetch: async (url, { signal }) => {
       asked.push({ url, signal })
+      if (url.startsWith('file:')) {
+        if (baked instanceof Error) throw baked
+        return { ok: baked === 200, status: baked, blob: async () => url }
+      }
       return { ok: status === 200, status, blob: async () => url }
     },
     bitmap: async (blob) => ({ blob, close() {} }),
@@ -54,7 +60,7 @@ test('the world is laid out tile by tile and decoded', async () => {
   assert.ok(heights.every((h) => h === 16.5))
   assert.deepEqual(
     t.asked.map((a) => a.url),
-    [tileUrl(1, 0, 0), tileUrl(1, 1, 0), tileUrl(1, 0, 1), tileUrl(1, 1, 1)]
+    [bakedUrl(1), tileUrl(1, 0, 0), tileUrl(1, 1, 0), tileUrl(1, 0, 1), tileUrl(1, 1, 1)]
   )
   assert.ok(t.asked.every((a) => a.signal === signal))
   assert.deepEqual(
@@ -71,11 +77,41 @@ test('the world is laid out tile by tile and decoded', async () => {
 test('the world is 64 tiles, and 16 on a phone', async () => {
   const full = tools()
   await loadTerrain(undefined, undefined, full)
-  assert.equal(full.asked.length, 4 ** TERRAIN_ZOOM)
-  assert.equal(full.asked.length, 64)
+  assert.equal(full.asked.length - 1, 4 ** TERRAIN_ZOOM)
+  assert.equal(full.asked.length - 1, 64)
   const phone = tools()
   await loadTerrain(undefined, PHONE_ZOOM, phone)
-  assert.equal(phone.asked.length, 16)
+  assert.equal(phone.asked.length - 1, 16)
+})
+
+test('the stitched file sits beside the module, named by level', () => {
+  assert.equal(bakedUrl(3), new URL('../src/terrain-3.png', import.meta.url).href)
+})
+
+test('a published stitched file is one request in place of the tiles', async () => {
+  const t = tools({ baked: 200 })
+  const { size, heights } = await loadTerrain(undefined, 1, t)
+  assert.equal(size, 2 * TILE)
+  assert.ok(heights.every((h) => h === 16.5))
+  assert.deepEqual(
+    t.asked.map((a) => a.url),
+    [bakedUrl(1)]
+  )
+  assert.deepEqual(t.drawn, [[bakedUrl(1), 0, 0]])
+})
+
+test('a stitched file that fails to fetch falls back to the tiles', async () => {
+  const t = tools({ baked: new TypeError('offline') })
+  await loadTerrain(undefined, 1, t)
+  assert.equal(t.asked.length, 5)
+})
+
+test('an aborted load stops rather than falling back', async () => {
+  const controller = new AbortController()
+  controller.abort()
+  const t = tools({ baked: new DOMException('aborted', 'AbortError') })
+  await assert.rejects(loadTerrain(controller.signal, 1, t), /aborted/)
+  assert.equal(t.asked.length, 1)
 })
 
 test('a missing tile fails the load', async () => {

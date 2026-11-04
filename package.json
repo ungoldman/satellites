@@ -22,8 +22,9 @@
     "url": "git+https://github.com/ungoldman/satellites.git"
   },
   "scripts": {
+    "bake": "node src/bake.js",
     "elements": "node src/elements.js",
-    "coverage": "node --test --experimental-test-coverage --test-coverage-exclude='test/**' --test-coverage-exclude='src/start.js' --test-coverage-exclude='src/elements.js' --test-coverage-exclude='src/coast.js' --test-coverage-lines=100 --test-coverage-branches=100 --test-coverage-functions=100 test/*.test.js",
+    "coverage": "node --test --experimental-test-coverage --test-coverage-exclude='test/**' --test-coverage-exclude='src/start.js' --test-coverage-exclude='src/elements.js' --test-coverage-exclude='src/bake.js' --test-coverage-exclude='src/coast.js' --test-coverage-lines=100 --test-coverage-branches=100 --test-coverage-functions=100 test/*.test.js",
     "format": "biome check --write .",
     "lint": "biome check .",
     "start": "node src/start.js",

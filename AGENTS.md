@@ -4,6 +4,7 @@
 - run: `npm start` (port 4173. `PORT` changes it. `-- --no-open` skips browser.)
 - test: `npm test`, `npm run coverage`
 - format: `npm run format`
+- data for the dev server: `npm run elements` writes `src/gp.json`, `npm run bake` writes `src/terrain-2.png` and `src/terrain-3.png`. All three are gitignored.
 
 Node 22.12+. Do not alter version. Push to `main` deploys https://ungoldman.com/satellites via `pages.yml`.
 
@@ -14,7 +15,7 @@ Node 22.12+. Do not alter version. Push to `main` deploys https://ungoldman.com/
 - Breaking changes discouraged. They need `BREAKING CHANGE:` footer.
 - Plain JS modules. No build. Relative paths, so page drops into any static site.
 - On ungoldman.com the page joins the site's router, see the page contract in `ungoldman.github.io/AGENTS.md`. `/router.js` and `/router/controls.js` are absent on the dev server and that is fine. `mount()` in `src/app.js` runs again in the same document, and what it returns undoes everything outside the page's own nodes.
-- No stylesheets or scripts from elsewhere. The page carries its own tokens. Data and images come from CelesTrak, the Terrain Tiles on AWS Open Data, NOAA STAR, NICT, CIRA SLIDER, and NASA Worldview at runtime.
+- No stylesheets or scripts from elsewhere. The page carries its own tokens. Data and images come from CelesTrak, the Terrain Tiles on AWS Open Data, NOAA STAR, NICT, CIRA SLIDER, and NASA Worldview. Elements and terrain are fetched by the Pages workflow and published beside the page, and the rest load at runtime.
 - The globe is WebGL2. Where it is missing, `src/app.js` falls back to a plain canvas globe from the land mask.
 - Few comments, kept trim.
 - 100% coverage on `src/orbit.js`, `src/view.js`, `src/fleet.js`, `src/time.js`, `src/terrain.js`, `src/globe.js`, and `src/server.js`. `src/terrain.js` takes its network and canvas as tools, and `test/globe.test.js` drives `src/globe.js` with a stand-in WebGL context, so both run in Node. `src/app.js` is checked in browser.
@@ -46,7 +47,8 @@ Keep free rotations of `orientation` out of input handling. The one `multiply` o
 - `src/view.js`: quaternion camera, projection, ray-sphere hit and occlusion, fling, key map, the view kept with the Earth, zoom toward a point, drag and contour scale with zoom, the latitude ring. No DOM.
 - `src/fleet.js`: the satellites shown, CelesTrak groups, image and link builders per source, slot guessing for full disks with the time of each. No DOM.
 - `src/time.js`: the clock in words and the time bar's week either side of now. No DOM.
-- `src/terrain.js`: Terrarium height tiles decoded into one Mercator square of the world, zoom 3, or zoom 2 on phones. No DOM of its own.
+- `src/terrain.js`: Terrarium heights decoded into one Mercator square of the world, zoom 3, or zoom 2 on phones. Loads the stitched `terrain-<zoom>.png` beside it in one request and falls back to the 64 or 16 tiles on AWS when that file is missing. No DOM of its own.
+- `src/bake.js`: stitches the tiles into `terrain-2.png` and `terrain-3.png`, with its own PNG reader and writer on `node:zlib`. The Pages workflow carries the published copies forward and bakes only a missing one, since the heights do not change. Not covered by tests, like `src/elements.js`.
 - `src/globe.js`: the WebGL2 globe, ray-cast per pixel, its colour and mono styles in one shader, with height, contour, grid, and terminator.
 - `src/coast.js`: Natural Earth 1:110m land rings, generated once. Not linted. The globe fills them into a lat, lon mask and strokes them as coastlines.
 - `src/app.js`: wires it together. Overlay canvas with satellites, trails, labels, belt dial, latitude ring, view cone, and leader line, the card and list, the time bar, steering from keys, touch, pinch, and wheel, style and theme, saved view, location, element cache. Keys match `event.code`.

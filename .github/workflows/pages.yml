@@ -32,6 +32,13 @@ jobs:
       # good one rather than dropping it
       - run: curl -fsS https://ungoldman.com/satellites/gp.json -o _site/gp.json || true
       - run: node src/elements.js _site/gp.json
+      # the heights never change, so the published copies are kept and the
+      # tiles are fetched only when one is missing
+      - run: |
+          for z in 2 3; do
+            curl -fsS --remove-on-error https://ungoldman.com/satellites/terrain-$z.png -o _site/terrain-$z.png || true
+          done
+      - run: node src/bake.js _site
       - uses: actions/configure-pages@v6
       - uses: actions/upload-pages-artifact@v5
       - id: deployment
