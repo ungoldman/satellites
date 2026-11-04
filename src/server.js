@@ -9,6 +9,7 @@ const FILES = {
   '/fleet.js': ['fleet.js', 'text/javascript; charset=utf-8'],
   '/format.js': ['format.js', 'text/javascript; charset=utf-8'],
   '/orbit.js': ['orbit.js', 'text/javascript; charset=utf-8'],
+  '/overlay.js': ['overlay.js', 'text/javascript; charset=utf-8'],
   '/view.js': ['view.js', 'text/javascript; charset=utf-8'],
   '/globe.js': ['globe.js', 'text/javascript; charset=utf-8'],
   '/terrain.js': ['terrain.js', 'text/javascript; charset=utf-8'],

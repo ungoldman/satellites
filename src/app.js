@@ -5,9 +5,9 @@ import { createGlobe } from './globe.js'
 import {
   centered,
   elements,
+  GEO_KM,
   geodetic,
   gmst,
-  horizon,
   length,
   passOver,
   period,
@@ -15,15 +15,14 @@ import {
   RAD,
   RE,
   SCALES,
-  scaled,
   speed,
   stationary,
   sun,
   sunlit,
   surface,
-  toward,
-  track
+  toward
 } from './orbit.js'
+import { createOverlay, markAll } from './overlay.js'
 import { DETAIL_PX, loadTerrain, PHONE_ZOOM, TERRAIN_ZOOM } from './terrain.js'
 import { away, gap as gapWords, midnights, SPEEDS, share, utc, WEEK, within } from './time.js'
 import {
@@ -36,19 +35,14 @@ import {
   fling,
   grip as gripFor,
   ground,
-  hidden,
   hit,
   invert,
   KEYS,
   keep,
   LIMB,
-  leader,
   multiply,
-  overlaps,
   PICK_KEYS,
-  parallels,
   pixels,
-  project,
   RATE_KEYS,
   RATES,
   STEER,
@@ -95,17 +89,6 @@ const IDLE_EVERY = 100
 const SWING = 700
 // the most slots to step back through when the newest picture is missing
 const BACK = 6
-// steps along the plumb line
-const PLUMB = 24
-// samples in each trail
-const TRAIL = 20
-const GEO_KM = 42164
-// the geostationary belt
-const BELT = Array.from({ length: 145 }, (_, k) => [
-  GEO_KM * Math.cos(k * 2.5 * RAD),
-  GEO_KM * Math.sin(k * 2.5 * RAD),
-  0
-])
 
 export function mount() {
   const teardown = new AbortController()
@@ -116,6 +99,7 @@ export function mount() {
   const canvas = $('canvas')
   const globeCanvas = $('globe')
   const ctx = canvas.getContext('2d')
+  const overlay = createOverlay(ctx)
   const credits = $('credits')
   const speeds = $('speeds')
   const scrub = $('scrub')
@@ -298,19 +282,6 @@ export function mount() {
 
   const view = () => zoom * fit(SCALES[scale](GEO_KM) * 1.05)
 
-  function spun([x, y, z], g) {
-    const c = Math.cos(g)
-    const s = Math.sin(g)
-    return toScreen(orientation, [x * c - y * s, x * s + y * c, z])
-  }
-
-  // a point in the inertial frame on screen, and whether the Earth hides it
-  function at(v, z) {
-    const p = toScreen(orientation, scaled(v, scale))
-    const [x, y] = project(p, width, height, z)
-    return { x, y, hidden: hidden(p) }
-  }
-
   // px from the center to the edge of the globe
   const limbOf = (z) => pixels(width, height, z) * LIMB
 
@@ -350,356 +321,6 @@ export function mount() {
     ctx.drawImage(globe, width / 2 - limb, height / 2 - limb, 2 * limb, 2 * limb)
   }
 
-  // lines on the near side of the globe, broken where they pass behind it
-  function drawLines(lines, g, z, style, lineWidth) {
-    ctx.strokeStyle = style
-    ctx.lineWidth = lineWidth
-    ctx.beginPath()
-    for (const line of lines) {
-      let down = false
-      for (const v of line) {
-        const p = spun(v, g)
-        if (p[2] > -1 / DISTANCE) {
-          down = false
-          continue
-        }
-        const [x, y] = project(p, width, height, z)
-        if (down) ctx.lineTo(x, y)
-        else ctx.moveTo(x, y)
-        down = true
-      }
-    }
-    ctx.stroke()
-  }
-
-  // a path through space, solid in front of the Earth and dashed behind it,
-  // or only the front part
-  function drawPath(points, z, style, behind = true, dash = []) {
-    const screen = points.map((v) => toScreen(orientation, scaled(v, scale)))
-    ctx.strokeStyle = style
-    ctx.lineWidth = 1
-    for (const back of behind ? [true, false] : [false]) {
-      ctx.setLineDash(back ? [2, 4] : dash)
-      ctx.globalAlpha = back ? 0.5 : 1
-      ctx.beginPath()
-      let down = false
-      for (const p of screen) {
-        if (hidden(p) !== back) {
-          down = false
-          continue
-        }
-        const [x, y] = project(p, width, height, z)
-        if (down) ctx.lineTo(x, y)
-        else ctx.moveTo(x, y)
-        down = true
-      }
-      ctx.stroke()
-    }
-    ctx.setLineDash([])
-    ctx.globalAlpha = 1
-  }
-
-  const lonLabel = (lon) =>
-    lon === 0 || lon === 180 ? `${lon}°` : `${Math.abs(lon)}°${lon < 0 ? 'W' : 'E'}`
-
-  // the geostationary belt as a dial of longitude, turning with the Earth
-  function drawBelt(z, g) {
-    drawPath(BELT, z, ink.belt, false)
-    ctx.font = `9px ${ink.mono}`
-    ctx.textAlign = 'center'
-    ctx.textBaseline = 'middle'
-    ctx.letterSpacing = '0.12em'
-    for (let k = 0; k < 36; k++) {
-      const lon = k * 10 - 180
-      const a = lon * RAD + g
-      const u = [Math.cos(a), Math.sin(a), 0]
-      const major = k % 3 === 0
-      const from = at(
-        u.map((c) => c * GEO_KM * 0.985),
-        z
-      )
-      const to = at(
-        u.map((c) => c * GEO_KM * (major ? 1.045 : 1.02)),
-        z
-      )
-      if (from.hidden) continue
-      ctx.strokeStyle = major ? ink.tick : ink.belt
-      ctx.beginPath()
-      ctx.moveTo(from.x, from.y)
-      ctx.lineTo(to.x, to.y)
-      ctx.stroke()
-      if (!major) continue
-      const l = at(
-        u.map((c) => c * GEO_KM * 1.1),
-        z
-      )
-      ctx.fillStyle = ink.faint
-      ctx.fillText(lonLabel(lon), l.x, l.y)
-    }
-    ctx.textAlign = 'start'
-    ctx.letterSpacing = '0px'
-  }
-
-  function drawLimb(z) {
-    ctx.strokeStyle = ink.limb
-    ctx.lineWidth = 1
-    ctx.beginPath()
-    ctx.arc(width / 2, height / 2, limbOf(z), 0, 2 * Math.PI)
-    ctx.stroke()
-  }
-
-  // a ring round the Earth that reads latitude where it meets the edge
-  function drawBezel(z, g) {
-    const cx = width / 2
-    const cy = height / 2
-    const r = limbOf(z) * 1.14 + 6
-    ctx.lineWidth = 1
-    ctx.strokeStyle = ink.belt
-    ctx.beginPath()
-    ctx.arc(cx, cy, r, 0, 2 * Math.PI)
-    ctx.stroke()
-    ctx.font = `9px ${ink.mono}`
-    ctx.letterSpacing = '0.12em'
-    ctx.textAlign = 'center'
-    ctx.textBaseline = 'middle'
-    // a tick every 10°, a label every 30°, longitude being on the belt
-    for (const { v, angles, fade } of parallels(orientation, g)) {
-      ctx.globalAlpha = fade
-      ctx.strokeStyle = ink.tick
-      ctx.fillStyle = ink.faint
-      const major = v % 30 === 0
-      ctx.beginPath()
-      for (const a of angles) {
-        ctx.moveTo(cx + Math.cos(a) * r, cy + Math.sin(a) * r)
-        ctx.lineTo(
-          cx + Math.cos(a) * (r + (major ? 9 : 4)),
-          cy + Math.sin(a) * (r + (major ? 9 : 4))
-        )
-      }
-      ctx.stroke()
-      if (!major) continue
-      const text = v === 0 ? 'EQ' : `${Math.abs(v)}°${v > 0 ? 'N' : 'S'}`
-      for (const a of angles)
-        ctx.fillText(text, cx + Math.cos(a) * (r + 22), cy + Math.sin(a) * (r + 22))
-    }
-    ctx.globalAlpha = 1
-    ctx.textAlign = 'start'
-    ctx.letterSpacing = '0px'
-  }
-
-  // where each satellite has just been, fading out behind it
-  function drawTrails(z) {
-    for (const m of marks) {
-      if (m.hidden) continue
-      const sat = sats[m.index]
-      // geostationary ones turn with the Earth, so a shorter tail keeps it off
-      // the globe
-      const reach = (period(sat.el) * 60000) / (sat.geo ? 48 : 12)
-      let prev = m
-      ctx.strokeStyle = sat.geo ? ink.geo : ink.leo
-      ctx.lineWidth = m.index === selected ? 1.5 : 1
-      for (let k = 1; k <= TRAIL; k++) {
-        const p = at(position(sat.el, sim - (reach * k) / TRAIL), z)
-        if (p.hidden) break
-        ctx.globalAlpha = 0.55 * (1 - k / TRAIL)
-        ctx.beginPath()
-        ctx.moveTo(prev.x, prev.y)
-        ctx.lineTo(p.x, p.y)
-        ctx.stroke()
-        prev = p
-      }
-    }
-    ctx.globalAlpha = 1
-    ctx.lineWidth = 1
-  }
-
-  // a craft drawn along its heading: a chevron for the polar imagers, a body
-  // with solar wings for geostationary
-  function glyph(m, sat, on, hover) {
-    const color = sat.geo ? ink.geo : ink.leo
-    if (hover && !on) {
-      ctx.save()
-      ctx.strokeStyle = color
-      ctx.fillStyle = color
-      ctx.globalAlpha *= 0.14
-      ctx.beginPath()
-      ctx.arc(m.x, m.y, 14, 0, 2 * Math.PI)
-      ctx.fill()
-      ctx.globalAlpha /= 0.14 / 0.8
-      ctx.stroke()
-      ctx.restore()
-    }
-    const k = on ? 1.4 : 1
-    ctx.save()
-    ctx.translate(m.x, m.y)
-    ctx.rotate(m.heading)
-    ctx.strokeStyle = color
-    ctx.fillStyle = color
-    ctx.lineWidth = 1
-    ctx.beginPath()
-    if (sat.geo) {
-      ctx.rect(-2.5 * k, -2.5 * k, 5 * k, 5 * k)
-      ctx.rect(-1.5 * k, -10 * k, 3 * k, 6 * k)
-      ctx.rect(-1.5 * k, 4 * k, 3 * k, 6 * k)
-    } else {
-      ctx.moveTo(6 * k, 0)
-      ctx.lineTo(-4 * k, 4 * k)
-      ctx.lineTo(-1.5 * k, 0)
-      ctx.lineTo(-4 * k, -4 * k)
-      ctx.closePath()
-    }
-    if (LOOK) {
-      ctx.fillStyle = ink.bgCss
-      ctx.fill()
-      ctx.stroke()
-    } else ctx.fill()
-    if (sat.geo) {
-      ctx.beginPath()
-      ctx.moveTo(0, -4 * k)
-      ctx.lineTo(0, 4 * k)
-      ctx.stroke()
-    }
-    // the way it is heading, as long as it is fast
-    const ahead = (LOOK ? 5 : 4) * m.kms
-    ctx.globalAlpha = on ? 0.8 : 0.35
-    ctx.setLineDash(LOOK ? [2, 3] : [])
-    ctx.beginPath()
-    ctx.moveTo(8 * k, 0)
-    ctx.lineTo(8 * k + ahead, 0)
-    if (!LOOK) {
-      ctx.moveTo(8 * k + ahead - 3, -2)
-      ctx.lineTo(8 * k + ahead, 0)
-      ctx.lineTo(8 * k + ahead - 3, 2)
-    }
-    ctx.stroke()
-    ctx.setLineDash([])
-    ctx.restore()
-    if (!on) return
-    ctx.strokeStyle = color
-    ctx.beginPath()
-    for (const [sx, sy] of [
-      [-1, -1],
-      [1, -1],
-      [1, 1],
-      [-1, 1]
-    ]) {
-      ctx.moveTo(m.x + sx * 15, m.y + sy * 9)
-      ctx.lineTo(m.x + sx * 15, m.y + sy * 15)
-      ctx.lineTo(m.x + sx * 9, m.y + sy * 15)
-    }
-    ctx.stroke()
-  }
-
-  // the callout from the picked satellite to its card, drawn under the
-  // satellites and labels
-  function drawLeader() {
-    if (selected < 0 || card.root.hidden) return
-    const m = marks[selected]
-    if (!m || m.hidden) return
-    const r = card.root.getBoundingClientRect()
-    const box = {
-      left: r.left,
-      right: r.right,
-      top: r.top - canvasTop,
-      bottom: r.bottom - canvasTop
-    }
-    const line = leader(m, box)
-    if (!line) return
-    const { start, elbow, end } = line
-    const color = sats[selected].geo ? ink.geo : ink.leo
-    ctx.strokeStyle = color
-    ctx.lineWidth = 1
-    ctx.globalAlpha = 0.6
-    ctx.setLineDash([2, 3])
-    ctx.beginPath()
-    ctx.moveTo(...start)
-    if (elbow) ctx.lineTo(...elbow)
-    ctx.lineTo(...end)
-    ctx.stroke()
-    ctx.setLineDash([])
-    ctx.globalAlpha = 1
-    ctx.fillStyle = ink.bgCss
-    ctx.beginPath()
-    ctx.arc(end[0], end[1], 3, 0, 2 * Math.PI)
-    ctx.fill()
-    ctx.stroke()
-  }
-
-  function drawSats() {
-    ctx.font = `10px ${ink.mono}`
-    ctx.textBaseline = 'middle'
-    ctx.letterSpacing = '0.1em'
-    const placed = []
-    const rank = (m) => (m.index === selected ? 2 : m.index === hovered ? 1 : 0)
-    const order = [...marks].sort((a, b) => rank(b) - rank(a))
-    for (const m of order) {
-      if (m.hidden && m.index !== selected) continue
-      const sat = sats[m.index]
-      const on = m.index === selected
-      const hover = m.index === hovered
-      m.label = null
-      ctx.globalAlpha = m.hidden ? 0.3 : 1
-      glyph(m, sat, on, hover)
-      const name = sat.name.toUpperCase()
-      const x = m.x + (on ? 20 : 11)
-      const nw = ctx.measureText(name).width
-      const vw = ctx.measureText(m.value).width
-      const label = [x - 2, m.y - 7, x + nw + 8 + vw, m.y + 7]
-      if (placed.some((o) => overlaps(label, o))) continue
-      placed.push(label)
-      m.label = label
-      ctx.lineJoin = 'round'
-      ctx.lineWidth = 4
-      ctx.strokeStyle = ink.bgCss
-      ctx.strokeText(name, x, m.y)
-      ctx.strokeText(m.value, x + nw + 6, m.y)
-      ctx.fillStyle = on || hover ? ink.fg : ink.dim
-      ctx.fillText(name, x, m.y)
-      ctx.fillStyle = ink.faint
-      ctx.fillText(m.value, x + nw + 6, m.y)
-      ctx.lineWidth = 1
-    }
-    ctx.globalAlpha = 1
-    ctx.letterSpacing = '0px'
-  }
-
-  // the picked satellite's ground, the edge of what it sees, and the cone
-  // from it to that edge
-  function drawView(z, sat) {
-    const r = position(sat.el, sim)
-    const color = sat.geo ? ink.geo : ink.leo
-    const rim = horizon(r)
-    drawPath(rim, z, color, false, LOOK ? [3, 3] : [])
-    const s = at(r, z)
-    const below = at(
-      r.map((c) => (c * RE) / length(r)),
-      z
-    )
-    const d = [below.x - s.x, below.y - s.y]
-    const front = rim.map((v) => at(v, z)).filter((p) => !p.hidden)
-    if (!front.length) return
-    ctx.strokeStyle = color
-    ctx.beginPath()
-    if (LOOK) {
-      ctx.globalAlpha = 0.16
-      for (let k = 0; k < front.length; k += 12) {
-        ctx.moveTo(s.x, s.y)
-        ctx.lineTo(front[k].x, front[k].y)
-      }
-    } else {
-      ctx.globalAlpha = 0.4
-      const side = (p) =>
-        (d[0] * (p.y - s.y) - d[1] * (p.x - s.x)) / Math.hypot(p.x - s.x, p.y - s.y)
-      const sorted = [...front].sort((a, b) => side(a) - side(b))
-      for (const p of [sorted[0], sorted.at(-1)]) {
-        ctx.moveTo(s.x, s.y)
-        ctx.lineTo(p.x, p.y)
-      }
-    }
-    ctx.stroke()
-    ctx.globalAlpha = 1
-  }
-
   // degrees a pixel of drag turns at the current zoom
   const grip = () => gripFor(pixels(width, height, view()))
 
@@ -731,58 +352,24 @@ export function mount() {
     if (before) pin(before, x, y)
   }
 
-  // the viewer's place: a ring and a dot, while it faces us
-  function drawHere(z) {
-    if (!here) return
-    const p = at(
-      surface(here.lat, here.lon, sim).map((c) => c * RE),
-      z
-    )
-    if (p.hidden) return
-    ctx.strokeStyle = ink.fg
-    ctx.fillStyle = ink.fg
-    ctx.lineWidth = 1
-    ctx.beginPath()
-    ctx.arc(p.x, p.y, 6, 0, 2 * Math.PI)
-    ctx.stroke()
-    ctx.beginPath()
-    ctx.arc(p.x, p.y, 1.5, 0, 2 * Math.PI)
-    ctx.fill()
+  // the card's box against the canvas, for the leader, while it shows
+  function cardBox() {
+    if (card.root.hidden) return null
+    const r = card.root.getBoundingClientRect()
+    return { left: r.left, right: r.right, top: r.top - canvasTop, bottom: r.bottom - canvasTop }
   }
 
+  // the place under the cursor, written in the readout as it changes, and
+  // drawn at the cursor unless a press is moving the view
   let cursorText = ''
-  function drawCursor() {
+  function cursorAt() {
     const spot = cursor && placeAt(cursor.x, cursor.y)
     const text = spot ? `${ns(spot.lat)}  ${ew(spot.lon)}` : ''
     if (text !== cursorText) {
       cursorText = text
       readout.cursor.textContent = text ? `cursor ${text}` : ''
     }
-    if (!spot || press) return
-    ctx.strokeStyle = ink.fg
-    ctx.lineWidth = 1
-    ctx.beginPath()
-    ctx.arc(cursor.x, cursor.y, 7, 0, 2 * Math.PI)
-    for (const [dx, dy] of [
-      [1, 0],
-      [-1, 0],
-      [0, 1],
-      [0, -1]
-    ]) {
-      ctx.moveTo(cursor.x + dx * 10, cursor.y + dy * 10)
-      ctx.lineTo(cursor.x + dx * 16, cursor.y + dy * 16)
-    }
-    ctx.stroke()
-    ctx.font = `9px ${ink.mono}`
-    ctx.letterSpacing = '0.1em'
-    ctx.textBaseline = 'middle'
-    ctx.lineWidth = 4
-    ctx.strokeStyle = ink.bgCss
-    ctx.strokeText(text, cursor.x + 20, cursor.y + 14)
-    ctx.fillStyle = ink.fg
-    ctx.fillText(text, cursor.x + 20, cursor.y + 14)
-    ctx.letterSpacing = '0px'
-    ctx.lineWidth = 1
+    return spot && !press ? { ...cursor, text } : null
   }
 
   function draw() {
@@ -790,22 +377,21 @@ export function mount() {
     const z = view()
     const g = gmst(sim)
     const light = toScreen(orientation, sun(sim))
-    marks = sats.map((sat, index) => {
-      const r = position(sat.el, sim)
-      const p = toScreen(orientation, scaled(r, scale))
-      const [x, y] = project(p, width, height, z)
-      const next = at(position(sat.el, sim + (period(sat.el) * 60000) / 400), z)
-      const below = geodetic(r, sim)
-      return {
-        index,
-        x,
-        y,
-        hidden: hidden(p),
-        heading: Math.atan2(next.y - y, next.x - x),
-        kms: speed(sat.el, length(r)),
-        value: sat.geo ? ew(below.lon, 1) : `${fmt(below.alt)} km`
-      }
-    })
+    const scene = {
+      width,
+      height,
+      orientation,
+      scale,
+      z,
+      g,
+      sim,
+      ink,
+      look: LOOK,
+      sats,
+      selected,
+      hovered
+    }
+    marks = markAll(scene)
     let seen = null
     if (selected >= 0) {
       const s = sats[selected]
@@ -827,6 +413,7 @@ export function mount() {
       terrainAt(TERRAIN_ZOOM)
     }
     const sharp = Math.min(1, Math.max(0, (rPx - 220) / 140))
+    const lines = []
     if (gl) {
       gl.draw({
         width,
@@ -844,39 +431,16 @@ export function mount() {
         step: contourStep(rPx),
         palette: ink.palette
       })
-      if (sharp < 1) {
-        ctx.globalAlpha = 1 - sharp
-        drawLines(coast, g, z, ink.coast, LOOK ? 1 : 0.9)
-        ctx.globalAlpha = 1
-      }
+      if (sharp < 1)
+        lines.push({ lines: coast, style: ink.coast, width: LOOK ? 1 : 0.9, alpha: 1 - sharp })
     } else {
       drawGlobe(z, light, g)
-      drawLines(graticule, g, z, ink.grid, 1)
-      drawLines(coast, g, z, ink.coast, 0.8)
-    }
-    drawLimb(z)
-    drawBezel(z, g)
-    drawBelt(z, g)
-    drawTrails(z)
-    if (selected >= 0) {
-      const sat = sats[selected]
-      if (!sat.geo) drawPath(track(sat.el, sim - period(sat.el) * 30000), z, ink.track)
-      const r = position(sat.el, sim)
-      const ground = RE / length(r)
-      drawPath(
-        Array.from({ length: PLUMB + 1 }, (_, k) => {
-          const f = 1 + ((ground - 1) * k) / PLUMB
-          return r.map((c) => c * f)
-        }),
-        z,
-        ink.track
+      lines.push(
+        { lines: graticule, style: ink.grid, width: 1 },
+        { lines: coast, style: ink.coast, width: 0.8 }
       )
-      drawView(z, sat)
     }
-    drawLeader()
-    drawSats()
-    drawHere(z)
-    drawCursor()
+    overlay({ ...scene, marks, lines, box: cardBox(), here, cursor: cursorAt() })
   }
 
   let scrubbing = false

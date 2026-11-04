@@ -6,6 +6,8 @@ import { DAY } from './time.js'
 // WGS 84
 export const MU = 398600.4418
 export const RE = 6378.137
+// the geostationary orbit's radius
+export const GEO_KM = 42164
 const FLAT = 1 / 298.257223563
 const J2 = 1.08262668e-3
 
