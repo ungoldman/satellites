@@ -1,5 +1,6 @@
 import { LAND } from './coast.js'
 import { fresh, pick, picture, STALE, snapshot, TRUSTED, wikiUrl } from './fleet.js'
+import { ew, fmt, ns } from './format.js'
 import { createGlobe } from './globe.js'
 import {
   centered,
@@ -41,7 +42,9 @@ import {
   KEYS,
   keep,
   LIMB,
+  leader,
   multiply,
+  overlaps,
   PICK_KEYS,
   parallels,
   pixels,
@@ -50,6 +53,7 @@ import {
   RATES,
   STEER,
   STILL,
+  slerp,
   slow,
   spinBy,
   steer,
@@ -575,8 +579,8 @@ export function mount() {
     ctx.stroke()
   }
 
-  // A callout from the picked satellite to the card: a 45° leg, then straight
-  // into the card's nearest edge. Drawn under the satellites and labels.
+  // the callout from the picked satellite to its card, drawn under the
+  // satellites and labels
   function drawLeader() {
     if (selected < 0 || card.root.hidden) return
     const m = marks[selected]
@@ -588,22 +592,9 @@ export function mount() {
       top: r.top - canvasTop,
       bottom: r.bottom - canvasTop
     }
-    const pad = 14
-    let elbow
-    let end
-    if (m.x < box.left - 24) {
-      const y = Math.min(box.bottom - pad, Math.max(box.top + pad, m.y))
-      end = [box.left, y]
-      elbow = [Math.min(m.x + Math.abs(y - m.y), box.left - 16), y]
-    } else if (m.y < box.top - 24) {
-      const x = Math.min(box.right - pad, Math.max(box.left + pad, m.x))
-      end = [x, box.top]
-      elbow = [x, Math.min(m.y + Math.abs(x - m.x), box.top - 16)]
-    } else return
-    const lead = Math.hypot(elbow[0] - m.x, elbow[1] - m.y) > 1 ? elbow : end
-    const d = Math.hypot(lead[0] - m.x, lead[1] - m.y)
-    if (d < 20) return
-    const start = [m.x + ((lead[0] - m.x) / d) * 19, m.y + ((lead[1] - m.y) / d) * 19]
+    const line = leader(m, box)
+    if (!line) return
+    const { start, elbow, end } = line
     const color = sats[selected].geo ? ink.geo : ink.leo
     ctx.strokeStyle = color
     ctx.lineWidth = 1
@@ -611,7 +602,7 @@ export function mount() {
     ctx.setLineDash([2, 3])
     ctx.beginPath()
     ctx.moveTo(...start)
-    if (lead === elbow) ctx.lineTo(...elbow)
+    if (elbow) ctx.lineTo(...elbow)
     ctx.lineTo(...end)
     ctx.stroke()
     ctx.setLineDash([])
@@ -643,11 +634,7 @@ export function mount() {
       const nw = ctx.measureText(name).width
       const vw = ctx.measureText(m.value).width
       const label = [x - 2, m.y - 7, x + nw + 8 + vw, m.y + 7]
-      if (
-        placed.some((o) => label[0] < o[2] && o[0] < label[2] && label[1] < o[3] && o[1] < label[3])
-      ) {
-        continue
-      }
+      if (placed.some((o) => overlaps(label, o))) continue
       placed.push(label)
       m.label = label
       ctx.lineJoin = 'round'
@@ -881,11 +868,6 @@ export function mount() {
     drawCursor()
   }
 
-  const fmt = (n, digits = 0) =>
-    n.toLocaleString('en-US', { minimumFractionDigits: digits, maximumFractionDigits: digits })
-  const ns = (lat, d = 2) => `${fmt(Math.abs(lat), d)}°${lat < -0.005 ? 'S' : 'N'}`
-  const ew = (lon, d = 2) => `${fmt(Math.abs(lon), d)}°${lon < -0.005 ? 'W' : 'E'}`
-
   let scrubbing = false
   let dayStamp = -1
   // the knob where the clock is, a band from now to it with the gap written
@@ -994,19 +976,6 @@ export function mount() {
     card.root.classList.toggle('open', !open)
     resize()
   })
-
-  // spherical interpolation, the short way round
-  function slerp(a, b, t) {
-    let d = a.reduce((s, c, i) => s + c * b[i], 0)
-    const to = d < 0 ? b.map((c) => -c) : b
-    d = Math.abs(d)
-    if (d > 0.9995) return a.map((c, i) => c + (to[i] - c) * t)
-    const th = Math.acos(d)
-    const s = Math.sin(th)
-    const ka = Math.sin((1 - t) * th) / s
-    const kb = Math.sin(t * th) / s
-    return a.map((c, i) => c * ka + to[i] * kb)
-  }
 
   function select(index, center) {
     selected = index

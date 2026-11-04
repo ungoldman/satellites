@@ -30,7 +30,7 @@ jobs:
       - uses: actions/checkout@v7
         with:
           fetch-depth: 0
-      - run: mkdir _site && cp src/index.html src/app.js src/coast.js src/fleet.js src/globe.js src/orbit.js src/terrain.js src/time.js src/view.js src/og.png _site/
+      - run: mkdir _site && cp src/index.html src/app.js src/coast.js src/fleet.js src/format.js src/globe.js src/orbit.js src/terrain.js src/time.js src/view.js src/og.png _site/
       # the About panel's last updated date, from src/ so the two hourly
       # element refreshes leave it alone
       - run: |

@@ -7,6 +7,7 @@ const FILES = {
   '/app.js': ['app.js', 'text/javascript; charset=utf-8'],
   '/coast.js': ['coast.js', 'text/javascript; charset=utf-8'],
   '/fleet.js': ['fleet.js', 'text/javascript; charset=utf-8'],
+  '/format.js': ['format.js', 'text/javascript; charset=utf-8'],
   '/orbit.js': ['orbit.js', 'text/javascript; charset=utf-8'],
   '/view.js': ['view.js', 'text/javascript; charset=utf-8'],
   '/globe.js': ['globe.js', 'text/javascript; charset=utf-8'],

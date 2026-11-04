@@ -18,7 +18,7 @@ Node 22.12+. Do not alter version. Push to `main` deploys https://ungoldman.com/
 - No stylesheets or scripts from elsewhere. The page carries its own tokens. Data and images come from CelesTrak, the Terrain Tiles on AWS Open Data, NOAA STAR, NICT, CIRA SLIDER, and NASA Worldview. Elements and terrain are fetched by the Pages workflow and published beside the page, and the rest load at runtime.
 - The globe is WebGL2. Where it is missing, `src/app.js` falls back to a plain canvas globe from the land mask.
 - Few comments, kept trim.
-- 100% coverage on `src/orbit.js`, `src/view.js`, `src/fleet.js`, `src/time.js`, `src/terrain.js`, `src/globe.js`, and `src/server.js`. `src/terrain.js` takes its network and canvas as tools, and `test/globe.test.js` drives `src/globe.js` with a stand-in WebGL context, so both run in Node. `src/app.js` is checked in browser.
+- 100% coverage on `src/orbit.js`, `src/view.js`, `src/fleet.js`, `src/format.js`, `src/time.js`, `src/terrain.js`, `src/globe.js`, and `src/server.js`. `src/terrain.js` takes its network and canvas as tools, and `test/globe.test.js` drives `src/globe.js` with a stand-in WebGL context, so both run in Node. `src/app.js` is checked in browser.
 - `satellite.js` is a devDependency only. Tests hold `src/orbit.js` to within 60 km of its SGP4 over three days, against the elements in `test/fixtures/gp.json`.
 
 ## Navigation
@@ -46,6 +46,7 @@ Keep free rotations of `orientation` out of input handling. The one `multiply` o
 - `src/orbit.js`: OMM elements, two-body plus J2 propagation, sidereal time, geodetic, Sun direction, scales, the ground a satellite sees, sunlight, and the timing of a daylight pass. No DOM.
 - `src/view.js`: quaternion camera, projection, ray-sphere hit and occlusion, fling, key map, the view kept with the Earth, zoom toward a point, drag and contour scale with zoom, the latitude ring. No DOM.
 - `src/fleet.js`: the satellites shown, CelesTrak groups, image and link builders per source, slot guessing for full disks with the time of each. No DOM.
+- `src/format.js`: numbers, latitudes, and longitudes in words. No DOM.
 - `src/time.js`: the clock in words and the time bar's week either side of now. No DOM.
 - `src/terrain.js`: Terrarium heights decoded into one Mercator square of the world. Loads the stitched `terrain-<zoom>.webp` beside it in one request and falls back to the 64 or 16 tiles on AWS when that file is missing. No DOM of its own. `src/app.js` loads zoom 2 first, about 1 MB, and zoom 3, about 3.8 MB, only once the globe passes `DETAIL_PX` device pixels per Earth radius, never on a phone.
 - `src/bake.js`: stitches the tiles into `terrain-2.webp` and `terrain-3.webp`, reading them with its own PNG reader on `node:zlib` and encoding with `cwebp -lossless -exact`, which keeps every height. The Pages workflow carries the published copies forward and bakes only a missing one, since the heights do not change. Not covered by tests, like `src/elements.js`.

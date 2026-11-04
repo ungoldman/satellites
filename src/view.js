@@ -199,6 +199,46 @@ export const RATES = [1, 10, 60, 300, 1800, 3600]
 
 export const normalize = (q) => q.map((c) => c / Math.hypot(...q))
 
+// spherical interpolation from a to b by t, the short way round
+export function slerp(a, b, t) {
+  let d = a.reduce((s, c, i) => s + c * b[i], 0)
+  const to = d < 0 ? b.map((c) => -c) : b
+  d = Math.abs(d)
+  if (d > 0.9995) return a.map((c, i) => c + (to[i] - c) * t)
+  const th = Math.acos(d)
+  const s = Math.sin(th)
+  const ka = Math.sin((1 - t) * th) / s
+  const kb = Math.sin(t * th) / s
+  return a.map((c, i) => c * ka + to[i] * kb)
+}
+
+// whether two screen boxes, [left, top, right, bottom], overlap
+export const overlaps = (a, b) => a[0] < b[2] && b[0] < a[2] && a[1] < b[3] && b[1] < a[3]
+
+// A callout from point m to a box to its right or below it: a 45° leg, then
+// straight into the box's nearest edge, pad in from its corners. The leg is
+// null when the point already lines up. Null when the box is not clear of
+// the point, or the line would be too short to read.
+export function leader(m, box, pad = 14) {
+  let elbow
+  let end
+  if (m.x < box.left - 24) {
+    const y = Math.min(box.bottom - pad, Math.max(box.top + pad, m.y))
+    end = [box.left, y]
+    elbow = [Math.min(m.x + Math.abs(y - m.y), box.left - 16), y]
+  } else if (m.y < box.top - 24) {
+    const x = Math.min(box.right - pad, Math.max(box.left + pad, m.x))
+    end = [x, box.top]
+    elbow = [x, Math.min(m.y + Math.abs(x - m.x), box.top - 16)]
+  } else return null
+  const lead = Math.hypot(elbow[0] - m.x, elbow[1] - m.y) > 1 ? elbow : end
+  const d = Math.hypot(lead[0] - m.x, lead[1] - m.y)
+  if (d < 20) return null
+  // starts clear of the glyph
+  const start = [m.x + ((lead[0] - m.x) / d) * 19, m.y + ((lead[1] - m.y) / d) * 19]
+  return { start, elbow: lead === elbow ? elbow : null, end }
+}
+
 // A turn by angle a about the Earth's axis, as the view sees it. Applied
 // after the view, the camera turns with the Earth: see keep and unkeep.
 export const spinBy = (a) => [Math.cos(a / 2), 0, Math.sin(a / 2), 0]

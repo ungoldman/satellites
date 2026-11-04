@@ -20,9 +20,11 @@ import {
   KEYS,
   keep,
   LIMB,
+  leader,
   MAX_SPIN,
   multiply,
   normalize,
+  overlaps,
   PICK_KEYS,
   parallels,
   pixels,
@@ -30,6 +32,7 @@ import {
   RATE_KEYS,
   RATES,
   STILL,
+  slerp,
   slow,
   spinBy,
   steer,
@@ -333,4 +336,52 @@ test('steering moves the center over the ground with north up', () => {
   // the center stops short of the poles
   near(ground(steer(start, g, 80, 0), g, 0, 0).lat, 89, 1e-9, 'pole')
   near(ground(steer(start, g, -200, 0), g, 0, 0).lat, -89, 1e-9, 'pole')
+})
+
+test('slerp runs the short way between two turns, staying a turn', () => {
+  const a = facing(0, 0)
+  const b = facing(1, 30)
+  const near = (p, q) => p.every((c, i) => Math.abs(c - q[i]) < 1e-9)
+  assert.ok(near(slerp(a, b, 0), a))
+  assert.ok(near(slerp(a, b, 1), b))
+  assert.ok(Math.abs(Math.hypot(...slerp(a, b, 0.5)) - 1) < 1e-9)
+  // the same turn written negated is reached without going the long way
+  const flipped = b.map((c) => -c)
+  assert.ok(near(slerp(a, flipped, 1), b))
+  // all but equal turns blend straight
+  const c = normalize(a.map((x, i) => x + (i === 1 ? 1e-4 : 0)))
+  assert.ok(
+    near(
+      slerp(a, c, 0.5),
+      a.map((x, i) => (x + c[i]) / 2)
+    )
+  )
+})
+
+test('boxes overlap only when they share area', () => {
+  assert.equal(overlaps([0, 0, 10, 10], [5, 5, 15, 15]), true)
+  assert.equal(overlaps([0, 0, 10, 10], [10, 0, 20, 10]), false)
+  assert.equal(overlaps([0, 0, 10, 10], [0, 11, 10, 20]), false)
+  assert.equal(overlaps([20, 0, 30, 10], [0, 0, 10, 10]), false)
+  assert.equal(overlaps([0, 20, 10, 30], [0, 0, 10, 10]), false)
+})
+
+test('a leader runs a 45° leg into the near edge of a box', () => {
+  const box = { left: 200, right: 400, top: 100, bottom: 300 }
+  // to the left of the box: in from the left edge, the leg rising to its height
+  const left = leader({ x: 100, y: 50 }, box)
+  assert.deepEqual(left.end, [200, 114])
+  assert.deepEqual(left.elbow, [164, 114])
+  assert.ok(Math.abs(Math.hypot(left.start[0] - 100, left.start[1] - 50) - 19) < 1e-9)
+  // above the box: down into its top edge
+  const above = leader({ x: 300, y: 0 }, box)
+  assert.deepEqual(above.end, [300, 100])
+  assert.deepEqual(leader({ x: 100, y: 50 }, box, 30).end, [200, 130])
+  // straight down, so there is no leg
+  assert.equal(above.elbow, null)
+  // inside the box's reach, or too close to draw
+  assert.equal(leader({ x: 300, y: 200 }, box), null)
+  assert.equal(leader({ x: 300, y: 90 }, { ...box, top: 105 }), null)
+  // a leg of a few px is too short to read
+  assert.equal(leader({ x: 100, y: 109 }, box), null)
 })

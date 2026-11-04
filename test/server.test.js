@@ -21,6 +21,7 @@ test('it serves the page and its scripts', async (t) => {
     ['/app.js', 'text/javascript'],
     ['/coast.js', 'text/javascript'],
     ['/fleet.js', 'text/javascript'],
+    ['/format.js', 'text/javascript'],
     ['/globe.js', 'text/javascript'],
     ['/orbit.js', 'text/javascript'],
     ['/terrain.js', 'text/javascript'],
