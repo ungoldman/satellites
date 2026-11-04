@@ -179,7 +179,7 @@
     line-height: 1;
   }
   /* two words, the one in use pressed */
-  #styles { display: flex; height: 32px; border: 1px solid var(--rule); border-radius: 6px; overflow: hidden; }
+  #styles { display: flex; flex: none; box-sizing: border-box; height: 32px; border: 1px solid var(--rule); border-radius: 6px; overflow: hidden; }
   #styles button { border: 0; border-radius: 0; padding: 0 9px; font-size: 11px; letter-spacing: 0.08em; color: var(--dim); }
   #styles button + button { border-left: 1px solid var(--rule); }
   #controls #styles button { width: auto; height: 100%; padding: 0 9px; }
@@ -492,6 +492,14 @@
     #controls #styles button { font-size: 13px; padding: 0 12px; }
     select { height: 40px; }
     button.small { min-height: 30px; }
+  }
+  /* a phone's header holds six buttons and the switch on one row, down to
+     375 px across */
+  @media (pointer: coarse) and (max-width: 600px) {
+    #controls { align-items: center; justify-content: space-between; }
+    #controls button { flex: none; width: 38px; height: 38px; font-size: 16px; }
+    #styles { height: 38px; }
+    #controls #styles button { font-size: 12px; padding: 0 8px; letter-spacing: 0.04em; }
   }
   @media (prefers-reduced-motion: reduce) {
     button { transition: none; }
