@@ -70,8 +70,9 @@ const locate = (s) => (v) => {
   return { x, y, hidden: hidden(p) }
 }
 
+// 0° and the date line belong to neither hemisphere
 const lonLabel = (lon) =>
-  lon === 0 || lon === 180 ? `${lon}°` : `${Math.abs(lon)}°${lon < 0 ? 'W' : 'E'}`
+  lon % 180 === 0 ? `${Math.abs(lon)}°` : `${Math.abs(lon)}°${lon < 0 ? 'W' : 'E'}`
 
 export function createOverlay(ctx) {
   let s

@@ -117,6 +117,10 @@ test('the latitude ring and the belt are labelled', () => {
   assert.ok(words.includes('0°'))
   assert.ok(words.some((w) => /^\d+°W$/.test(w)))
   assert.ok(words.some((w) => /^\d+°E$/.test(w)))
+  // from the far side the date line faces us
+  const back = fakeCtx()
+  createOverlay(back)(scene(gmst(MS) + Math.PI, 0))
+  assert.ok(texts(back).includes('180°'))
 })
 
 test('lines in the Earth frame are drawn on the near side only', () => {
