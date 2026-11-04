@@ -25,7 +25,6 @@ import { loadTerrain, PHONE_ZOOM, TERRAIN_ZOOM } from './terrain.js'
 import { away, gap as gapWords, midnights, SPEEDS, share, utc, WEEK, within } from './time.js'
 import {
   ACTIONS,
-  between,
   contourStep,
   DISTANCE,
   DRAG,
@@ -41,7 +40,6 @@ import {
   keep,
   LIMB,
   multiply,
-  normalize,
   PICK_KEYS,
   parallels,
   pixels,
@@ -54,7 +52,6 @@ import {
   spinBy,
   steer,
   toScreen,
-  turn,
   unkeep,
   ZOOM_KEYS,
   zoomBy
@@ -679,19 +676,21 @@ export function mount() {
   // degrees a pixel of drag turns at the current zoom
   const grip = () => gripFor(pixels(width, height, view()))
 
-  // the point on the globe under a screen point, in screen space
-  const groundAt = (x, y) => {
+  // latitude and longitude under a screen point, or null off the globe
+  const placeAt = (x, y) => {
     const r = pixels(width, height, view())
-    return hit((x - width / 2) / r, (y - height / 2) / r)
+    return ground(orientation, gmst(sim), (x - width / 2) / r, (y - height / 2) / r)
   }
 
-  // zoom by factor, turning the globe so the ground under x, y stays there
+  // zoom by factor, steering so the ground under x, y stays there with north
+  // up, as the keys do
   function zoomAt(factor, x, y) {
-    const before = groundAt(x, y)
+    const before = placeAt(x, y)
     zoom = zoomBy(zoom, factor)
-    const after = groundAt(x, y)
-    const shift = before && after && between(before, after)
-    if (shift) orientation = normalize(multiply(shift, orientation))
+    const after = placeAt(x, y)
+    if (!before || !after) return
+    const east = ((((before.lon - after.lon + 180) % 360) + 360) % 360) - 180
+    orientation = steer(orientation, gmst(sim), before.lat - after.lat, east)
   }
 
   // the viewer's place: a ring and a dot, while it faces us
@@ -1265,7 +1264,7 @@ export function mount() {
     }
     if (!press) return
     if (Math.hypot(event.clientX - press.x, event.clientY - press.y) > CLICK) press.moved = true
-    orientation = turn(orientation, dy * grip(), -dx * grip())
+    orientation = steer(orientation, gmst(sim), dy * grip(), -dx * grip())
     const now = performance.now()
     press.trail.push({ x: event.clientX, y: event.clientY, at: now })
     while (press.trail.length && now - press.trail[0].at > FLICK_TAIL) press.trail.shift()
@@ -1384,7 +1383,7 @@ export function mount() {
     )
     if (north || east) orientation = steer(orientation, g, north, east)
     if (spin !== STILL) {
-      orientation = turn(orientation, ...spin.map((c) => c * (ms / FRAME)))
+      orientation = steer(orientation, g, spin[0] * (ms / FRAME), spin[1] * (ms / FRAME))
       spin = slow(spin, ms)
     }
     if (swing) {
