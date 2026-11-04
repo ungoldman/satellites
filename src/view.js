@@ -1,18 +1,15 @@
 // The camera: orientation, projection, zoom, and steering. No DOM, so it
 // runs in Node too. Quaternion math follows ungoldman/shapes.
 
-// Each key's direction, as a turn about the screen's x, y, and z. The z axis
-// points into the screen, so a negative turn about it is counterclockwise.
+// Each key's move over the ground, as degrees north and east: see steer.
 export const KEYS = {
-  KeyW: [-1, 0, 0],
-  KeyS: [1, 0, 0],
-  KeyA: [0, 1, 0],
-  KeyD: [0, -1, 0],
-  KeyQ: [0, 0, -1],
-  KeyE: [0, 0, 1]
+  KeyW: [1, 0],
+  KeyS: [-1, 0],
+  KeyA: [0, -1],
+  KeyD: [0, 1]
 }
 
-// degrees per frame at 60 fps while a key is held
+// degrees of ground per frame at 60 fps while a key is held, before zoom
 export const STEER = 1.6
 
 // degrees turned per pixel dragged, and the share of the drag's own speed a
@@ -96,8 +93,9 @@ export function facing(a, tilt = 0) {
 // how far the eye sits from the Earth's center, in Earth radii
 export const DISTANCE = 12
 
-// how far in and out a zoom may go, against the fit for the scale
-export const ZOOM = [0.5, 8]
+// how far in and out a zoom may go, against the fit for the scale, in as
+// far as a region, past which the world's heights hold no more detail
+export const ZOOM = [0.5, 100]
 
 export function zoomBy(zoom, factor) {
   return Math.min(ZOOM[1], Math.max(ZOOM[0], zoom * factor))
@@ -185,8 +183,101 @@ export const ACTIONS = {
   KeyN: 'now',
   KeyL: 'light',
   KeyI: 'info',
+  KeyM: 'style',
+  KeyR: 'home',
+  KeyG: 'locate',
   Escape: 'deselect'
 }
 
 // time's speed, in seconds per second
 export const RATES = [1, 10, 60, 300, 1800, 3600]
+
+export const normalize = (q) => q.map((c) => c / Math.hypot(...q))
+
+// A turn by angle a about the Earth's axis, as the view sees it. Applied
+// after the view, the camera turns with the Earth: see keep and unkeep.
+export const spinBy = (a) => [Math.cos(a / 2), 0, Math.sin(a / 2), 0]
+
+// the view with the Earth's turn at sidereal angle g taken out, so it names
+// ground rather than sky, and back again at another g
+export const keep = (q, g) => multiply(q, spinBy(-g))
+export const unkeep = (q, g) => normalize(multiply(q, spinBy(g)))
+
+// the turn carrying unit vector a onto b the short way, or null when they
+// already agree
+export function between(a, b) {
+  const axis = [a[1] * b[2] - a[2] * b[1], a[2] * b[0] - a[0] * b[2], a[0] * b[1] - a[1] * b[0]]
+  const s = size(axis)
+  if (s < 1e-12) return null
+  const angle = Math.atan2(s, a[0] * b[0] + a[1] * b[1] + a[2] * b[2])
+  const k = Math.sin(angle / 2) / s
+  return [Math.cos(angle / 2), axis[0] * k, axis[1] * k, axis[2] * k]
+}
+
+// degrees a pixel of drag turns for a globe px across per radius: the set
+// rate far out, and close in whatever keeps the ground with the pointer
+export const grip = (px) => Math.min(DRAG, 180 / Math.PI / px)
+
+// metres between fine contours for a globe px across per radius, finer as
+// each pixel covers less ground
+export function contourStep(px) {
+  const want = (6378137 / px) * 0.6
+  return [5, 10, 20, 25, 50, 100, 250].find((m) => m >= want) ?? 250
+}
+
+// latitude and longitude in degrees of the ground at screen point sx, sy, in
+// radii from the center, under view q at sidereal angle g, or null off the
+// globe
+export function ground(q, g, sx, sy) {
+  const p = hit(sx, sy)
+  if (!p) return null
+  const [c0, c1, c2] = invert(q, g)
+  const e = [0, 1, 2].map((i) => p[0] * c0[i] + p[1] * c1[i] + p[2] * c2[i])
+  return {
+    lat: (Math.asin(Math.max(-1, Math.min(1, e[2]))) * 180) / Math.PI,
+    lon: (Math.atan2(e[1], e[0]) * 180) / Math.PI
+  }
+}
+
+// The edge of the globe in radii from the center.
+export const LIMB = DISTANCE / Math.sqrt(DISTANCE ** 2 - 1)
+
+// Where each parallel a multiple of step degrees meets the edge of the globe,
+// as screen angles, and how far it has faded. A parallel crosses the edge
+// twice, and as it turns to graze the edge its crossings meet, so it fades
+// there rather than popping.
+export function parallels(q, g, step = 10, samples = 720) {
+  const lat = (k) => {
+    const a = (k / samples) * 2 * Math.PI
+    return ground(q, g, Math.cos(a) * LIMB * 0.9995, Math.sin(a) * LIMB * 0.9995).lat
+  }
+  const found = new Map()
+  let prev = lat(0)
+  for (let k = 1; k <= samples; k++) {
+    const cur = lat(k % samples)
+    const lo = Math.min(prev, cur)
+    const hi = Math.max(prev, cur)
+    for (let v = Math.floor(lo / step) * step + step; v <= hi; v += step) {
+      const a = ((k - 1 + (v - prev) / (cur - prev)) / samples) * 2 * Math.PI
+      found.set(v, [...(found.get(v) ?? []), a])
+    }
+    prev = cur
+  }
+  return [...found].map(([v, angles]) => {
+    // a closed edge crosses each level an even number of times, here twice
+    const apart = Math.abs(angles[0] - angles[1])
+    const fade = Math.min(1, Math.max(0, (Math.min(apart, 2 * Math.PI - apart) - 0.04) / 0.2))
+    return { v, angles, fade }
+  })
+}
+
+// The view moved over the ground under view q at sidereal angle g: the point
+// at the center goes north and east by degrees, and north comes back up. East
+// is a steady turn in longitude, which near a pole spins the view about it at
+// the same rate as anywhere else. The center stops short of a pole.
+export function steer(q, g, north, east) {
+  const c = ground(q, g, 0, 0)
+  const lat = Math.max(-89, Math.min(89, c.lat + north))
+  const lon = c.lon + east
+  return facing((lon * Math.PI) / 180 + g, lat)
+}

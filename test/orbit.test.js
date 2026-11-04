@@ -7,9 +7,11 @@ import {
   elements,
   geodetic,
   gmst,
+  horizon,
   kepler,
   length,
   MU,
+  passOver,
   period,
   position,
   RE,
@@ -18,7 +20,9 @@ import {
   speed,
   stationary,
   sun,
+  sunlit,
   surface,
+  toward,
   track
 } from '../src/orbit.js'
 
@@ -147,4 +151,88 @@ test('a track closes on itself after one turn', () => {
   // the Earth's bulge moves the orbit a little each turn
   assert.ok(Math.hypot(...points[0].map((c, i) => c - points[120][i])) < 100)
   assert.equal(track(el, el.epoch, 10).length, 11)
+})
+
+const dot = (a, b) => a[0] * b[0] + a[1] * b[1] + a[2] * b[2]
+
+test('toward is surface before the Earth turns', () => {
+  fc.assert(
+    fc.property(
+      fc.double({ min: -90, max: 90, noNaN: true }),
+      fc.double({ min: -180, max: 180, noNaN: true }),
+      fc.integer({ min: 0, max: 4e12 }),
+      (lat, lon, ms) => {
+        const v = toward(lat, lon)
+        near(length(v), 1, 1e-12, 'unit')
+        const g = gmst(ms)
+        const turned = [
+          v[0] * Math.cos(g) - v[1] * Math.sin(g),
+          v[0] * Math.sin(g) + v[1] * Math.cos(g),
+          v[2]
+        ]
+        for (const [i, c] of surface(lat, lon, ms).entries()) near(c, turned[i], 1e-9, `[${i}]`)
+      }
+    )
+  )
+})
+
+test('a horizon is a closed ring on the ground at the tangent angle', () => {
+  for (const r of [
+    [42164, 0, 0],
+    [3000, -4000, 5000],
+    // over a pole, where the ring is built from another axis
+    [10, 20, 7200]
+  ]) {
+    const ring = horizon(r, 48)
+    assert.equal(ring.length, 49)
+    for (const [i, c] of ring[0].entries()) near(c, ring.at(-1)[i], 1e-6, 'closed')
+    const edge = RE / length(r)
+    for (const p of ring) {
+      near(length(p), RE, 1e-6, 'on the ground')
+      near(dot(p, r) / (RE * length(r)), edge, 1e-9, 'tangent')
+    }
+  }
+  assert.equal(horizon([0, 0, 8000]).length, 97)
+})
+
+test('a satellite is sunlit unless the Earth shades it', () => {
+  const ms = Date.UTC(2026, 2, 20, 12)
+  const s = sun(ms)
+  const out = s.map((c) => c * 7000)
+  assert.deepEqual(sunlit(out, ms), { shadow: false, day: true })
+  assert.deepEqual(
+    sunlit(
+      s.map((c) => -c * 7000),
+      ms
+    ),
+    { shadow: true, day: false }
+  )
+  // behind the Earth but beside its shadow
+  const side = [-s[1], s[0], 0].map((c) => c / Math.hypot(s[0], s[1]))
+  const beside = side.map((c, i) => c * 9000 - s[i] * 1000)
+  assert.deepEqual(sunlit(beside, ms), { shadow: false, day: false })
+})
+
+test('a pass is the daylight moment a satellite came nearest a point', () => {
+  const el = elements(at(43013))
+  const day = at(43013).EPOCH.slice(0, 10)
+  const [lat, lon] = [45.52, -122.68]
+  const t = passOver(el, lat, lon, day)
+  const start = Date.parse(`${day}T00:00:00Z`)
+  assert.ok(t >= start && t < start + DAY)
+  assert.ok(dot(sun(t), surface(lat, lon, t)) > 0, 'in daylight')
+  // close enough to have imaged it, VIIRS seeing 1,500 km to each side
+  const below = geodetic(position(el, t), t)
+  const apart = Math.acos(dot(toward(below.lat, below.lon), toward(lat, lon))) * RE
+  assert.ok(apart < 1500, `${apart} km`)
+  // and nearer then than a minute either side
+  for (const dt of [-60000, 60000]) {
+    const g = geodetic(position(el, t + dt), t + dt)
+    assert.ok(dot(toward(g.lat, g.lon), toward(lat, lon)) <= Math.cos(apart / RE) + 1e-12)
+  }
+})
+
+test('there is no pass in a polar night', () => {
+  const el = elements(at(43013))
+  assert.equal(passOver(el, 89, 0, '2026-12-21'), null)
 })

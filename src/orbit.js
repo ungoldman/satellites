@@ -145,3 +145,72 @@ export function track(el, ms, steps = 120) {
   const step = (period(el) * 60000) / steps
   return Array.from({ length: steps + 1 }, (_, k) => position(el, ms + k * step))
 }
+
+// a unit vector in the Earth's own frame toward a latitude and longitude in
+// degrees
+export function toward(lat, lon) {
+  const c = Math.cos(lat * RAD)
+  return [c * Math.cos(lon * RAD), c * Math.sin(lon * RAD), Math.sin(lat * RAD)]
+}
+
+const dot = (a, b) => a[0] * b[0] + a[1] * b[1] + a[2] * b[2]
+const cross = (a, b) => [
+  a[1] * b[2] - a[2] * b[1],
+  a[2] * b[0] - a[0] * b[2],
+  a[0] * b[1] - a[1] * b[0]
+]
+const unit = (v) => v.map((c) => c / length(v))
+
+// the ring of ground a satellite at r can see, steps + 1 points closing the
+// loop, on the surface in the inertial frame
+export function horizon(r, steps = 96) {
+  const u = unit(r)
+  const b1 = unit(cross(u, Math.abs(u[2]) < 0.9 ? [0, 0, 1] : [1, 0, 0]))
+  const b2 = cross(u, b1)
+  const c = RE / length(r)
+  const s = Math.sqrt(1 - c * c)
+  return Array.from({ length: steps + 1 }, (_, k) => {
+    const t = (k / steps) * TAU
+    return u.map((x, i) => RE * (c * x + s * (Math.cos(t) * b1[i] + Math.sin(t) * b2[i])))
+  })
+}
+
+// whether a satellite at r is in sunlight at ms, by the Earth's cylinder of
+// shadow, and whether the ground below it is in day
+export function sunlit(r, ms) {
+  const s = sun(ms)
+  const along = dot(r, s)
+  const off = length(r.map((c, i) => c - along * s[i]))
+  return { shadow: along < 0 && off < RE, day: along > 0 }
+}
+
+// When a satellite passed nearest over a point, in daylight, on the UTC day
+// named YYYY-MM-DD: searched by the minute, then to five seconds. Null when
+// the point saw no daylight that day.
+export function passOver(el, lat, lon, day) {
+  const start = Date.parse(`${day}T00:00:00Z`)
+  const target = toward(lat, lon)
+  const near = (t) => {
+    const g = geodetic(position(el, t), t)
+    return dot(toward(g.lat, g.lon), target)
+  }
+  let best = null
+  let score = -2
+  for (let t = start; t < start + DAY; t += 60000) {
+    if (dot(sun(t), surface(lat, lon, t)) <= 0) continue
+    const c = near(t)
+    if (c > score) {
+      score = c
+      best = t
+    }
+  }
+  if (best === null) return null
+  for (let t = best - 60000; t <= best + 60000; t += 5000) {
+    const c = near(t)
+    if (c > score) {
+      score = c
+      best = t
+    }
+  }
+  return best
+}
