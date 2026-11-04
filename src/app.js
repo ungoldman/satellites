@@ -1020,10 +1020,10 @@ export function mount() {
       if (row.index === index) row.button.setAttribute('aria-current', 'true')
       else row.button.removeAttribute('aria-current')
     }
-    // the card's size moves the globe's room on a phone, so every pick resizes
     card.root.classList.remove('open')
     card.root.hidden = index < 0
-    resize()
+    // the card's size sets the globe's room on a phone, and only there
+    if (narrow.matches) resize()
     if (index < 0) return
     const sat = sats[index]
     card.root.dataset.orbit = sat.geo ? 'geo' : 'leo'
