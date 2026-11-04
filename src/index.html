@@ -567,11 +567,11 @@
 
 <div id="credits" popover>
   <h2>Satellites <button class="small" popovertarget="credits" popovertargetaction="hide">Close</button></h2>
-  <p>Where the satellites whose pictures anyone can see are right now, and what they last saw. <span class="geo">Winged</span> ones hang over one spot on the equator and watch a whole face of the Earth. <span class="leo">Arrow</span> ones cross the poles and see a strip at a time. Pick one to shade the ground it can see and show its latest picture, with the time it was taken.</p>
+  <p>Earth observation satellites with public imagery, mapped in real time based on available data. <span class="geo">Winged</span> icons are geostationary and stay over one spot on the equator, with a view of a whole side of the Earth. <span class="leo">Arrow</span> icons are polar and image a strip at a time as they pass. Select one to see the ground it covers and its latest picture.</p>
 
   <h3>Controls</h3>
   <table id="keys">
-    <tr><th scope="row">drag</th><td>turn</td></tr>
+    <tr><th scope="row">drag</th><td>pan</td></tr>
     <tr><th scope="row">hold <kbd>W</kbd> <kbd>A</kbd> <kbd>S</kbd> <kbd>D</kbd></th><td>north, west, south, east</td></tr>
     <tr><th scope="row">wheel, pinch, <kbd>+</kbd> <kbd>&minus;</kbd></th><td>zoom</td></tr>
     <tr><th scope="row">click, <kbd>[</kbd> <kbd>]</kbd></th><td>pick a satellite</td></tr>
@@ -593,10 +593,10 @@
 
   <h3>How it works</h3>
   <ul>
-    <li>Orbits come from CelesTrak's <a href="https://celestrak.org/NORAD/documentation/gp-data-formats.php">mean elements</a>, fetched for the page every two hours, and are solved with <a href="https://en.wikipedia.org/wiki/Kepler%27s_equation">Kepler's equation</a> plus the <a href="https://en.wikipedia.org/wiki/Nodal_precession">drift the Earth's bulge gives</a>. That stays within about 50 km of <a href="https://en.wikipedia.org/wiki/Simplified_perturbations_models">SGP4</a> over three days, checked against <a href="https://github.com/shashwatak/satellite-js">satellite.js</a>. If the newest elements are older than that, the clock stops at their time and shows where the satellites were then.</li>
+    <li>Orbits come from CelesTrak's <a href="https://celestrak.org/NORAD/documentation/gp-data-formats.php">mean elements</a>, fetched for the page every two hours, and are solved with <a href="https://en.wikipedia.org/wiki/Kepler%27s_equation">Kepler's equation</a> plus the <a href="https://en.wikipedia.org/wiki/Nodal_precession">nodal precession</a> from the Earth's bulge. That stays within about 50 km of <a href="https://en.wikipedia.org/wiki/Simplified_perturbations_models">SGP4</a> over three days, checked against <a href="https://github.com/shashwatak/satellite-js">satellite.js</a>. If the newest elements are older than that, the clock stops at their time and shows where the satellites were then.</li>
     <li>The globe is <a href="https://en.wikipedia.org/wiki/Ray_casting">ray-cast</a> per pixel in WebGL. Each pixel finds its latitude and longitude, reads the height or depth there, and is lit by the Sun, which draws the <a href="https://en.wikipedia.org/wiki/Terminator_(solar)">terminator</a>. Coast, <a href="https://en.wikipedia.org/wiki/Contour_line">contours</a>, and grid come from the same heights.</li>
     <li>A full disk's caption gives the time of the image. A daily composite has no one time, so its caption gives the satellite's daylight pass over the area shown, worked out from its orbit.</li>
-    <li>The view is one <a href="https://en.wikipedia.org/wiki/Quaternions_and_spatial_rotation">quaternion</a>, steered the way <a href="https://ungoldman.com/shapes/">Shapes</a> is.</li>
+    <li>The view stays north up. Dragging keeps the ground under the pointer, and the keys move the center over the ground at a steady rate.</li>
   </ul>
 
   <h3>Credits</h3>
