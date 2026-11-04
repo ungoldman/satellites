@@ -1334,6 +1334,9 @@ export function mount() {
   }
   canvas.addEventListener('pointerup', release)
   canvas.addEventListener('pointercancel', release)
+  // A tap picks on pointerup, which on a phone opens the card under the
+  // finger, and the same tap's click would then land on the card's link.
+  canvas.addEventListener('touchend', (event) => event.preventDefault(), { passive: false })
 
   canvas.addEventListener(
     'wheel',
