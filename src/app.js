@@ -1187,7 +1187,7 @@ export function mount() {
           readout.note.textContent = ''
           spin = STILL
           const p = surface(here.lat, here.lon, sim)
-          startSwing(facing(Math.atan2(p[1], p[0]), here.lat), Math.max(zoom, 40), 1400)
+          startSwing(facing(Math.atan2(p[1], p[0]), here.lat), zoom, 1400)
         },
         (err) => {
           readout.note.textContent =
