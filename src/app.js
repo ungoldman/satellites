@@ -106,7 +106,6 @@ export function mount() {
   const globeCanvas = document.getElementById('globe')
   const ctx = canvas.getContext('2d')
   const credits = document.getElementById('credits')
-  const picker = document.getElementById('pick')
   const speeds = document.getElementById('speeds')
   const scrub = document.getElementById('scrub')
   const days = document.getElementById('days')
@@ -984,7 +983,6 @@ export function mount() {
 
   function select(index, center) {
     selected = index
-    picker.value = index < 0 ? '' : String(index)
     for (const row of rows) {
       if (row.index === index) row.button.setAttribute('aria-current', 'true')
       else row.button.removeAttribute('aria-current')
@@ -1168,10 +1166,6 @@ export function mount() {
 
   for (const [name, el] of Object.entries(buttons)) el.addEventListener('click', actions[name])
 
-  picker.addEventListener('change', () => {
-    select(picker.value === '' ? -1 : Number(picker.value), true)
-    picker.blur()
-  })
   for (const [index, label] of SPEEDS.entries()) {
     const b = document.createElement('button')
     b.dataset.rate = String(index)
@@ -1217,7 +1211,6 @@ export function mount() {
 
   on('keydown', (event) => {
     if (event.metaKey || event.ctrlKey || event.altKey) return
-    if (event.target instanceof HTMLSelectElement) return
     const { code } = event
     if (KEYS[code]) {
       held.add(code)
@@ -1529,7 +1522,6 @@ export function mount() {
       const el = elements(sat.omm)
       return { ...sat, el, geo: stationary(el) }
     })
-    for (const [index, sat] of sats.entries()) picker.add(new Option(sat.name, String(index)))
     buildRoster()
     showReadout()
     const index = sats.findIndex((sat) => sat.name === kept)

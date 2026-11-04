@@ -145,18 +145,7 @@
   #home:hover, #home:focus-visible { color: var(--fg); }
   h1 { margin: 0; font-size: 1.2rem; font-weight: 600; letter-spacing: 0.12em; text-transform: uppercase; white-space: nowrap; }
   header h1 { line-height: 1.4; }
-  #menus, #controls { display: flex; gap: 6px; }
-  select {
-    height: 32px;
-    padding: 0 8px;
-    font: inherit;
-    letter-spacing: 0.04em;
-    color: var(--fg);
-    background: var(--bg);
-    border: 1px solid var(--rule);
-    border-radius: 6px;
-    cursor: pointer;
-  }
+  #controls { display: flex; gap: 6px; }
   button {
     font: inherit;
     letter-spacing: inherit;
@@ -478,13 +467,6 @@
     header { flex-wrap: wrap; row-gap: 8px; }
     #controls { width: 100%; justify-content: flex-end; }
     #readout { top: 100px; bottom: auto; }
-    #menus {
-      position: fixed;
-      left: 16px;
-      right: 16px;
-      bottom: calc(132px + env(safe-area-inset-bottom));
-    }
-    #menus select { width: 100%; min-width: 0; }
     #timebar {
       bottom: calc(8px + env(safe-area-inset-bottom));
       height: auto;
@@ -514,7 +496,6 @@
     #controls button { width: 44px; height: 44px; font-size: 18px; }
     #styles { height: 44px; }
     #controls #styles button { font-size: 13px; padding: 0 12px; }
-    select { height: 40px; }
     button.small { min-height: 30px; }
   }
   /* a phone's header holds six buttons and the switch on one row, down to
@@ -537,9 +518,6 @@
   <a id="home" href="/" title="index" aria-label="back to index">&#8617;</a>
   <h1>Satellites</h1>
   <span class="rule"></span>
-  <div id="menus">
-    <select id="pick" aria-label="Satellite" title="Satellite ([ and ])"><option value="">none</option></select>
-  </div>
   <nav id="controls" aria-label="Controls">
     <button data-action="locate" title="My location (G)" aria-label="Go to my location">&#8982;&#xFE0E;</button>
     <button data-action="home" title="Reset view (R)" aria-label="Reset view">&#9851;&#xFE0E;</button>
