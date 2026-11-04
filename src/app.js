@@ -251,12 +251,26 @@ export function mount() {
 
   const narrow = matchMedia('(max-width: 600px)')
 
+  // where the canvases start down the page, so DOM boxes can be drawn against
+  // them
+  let canvasTop = 0
+
   function resize() {
     dpr = Math.min(2, window.devicePixelRatio || 1)
-    const h =
-      narrow.matches && !card.root.hidden ? `${card.root.getBoundingClientRect().top}px` : ''
-    canvas.style.height = h
-    globeCanvas.style.height = h
+    // on a phone the globe sits between the header, or the count under it,
+    // and the card, or the time bar while nothing is picked
+    canvasTop = 0
+    let h = ''
+    if (narrow.matches) {
+      const above = [$('controls').closest('header'), $('readout')]
+      canvasTop = Math.max(...above.map((e) => e.getBoundingClientRect().bottom))
+      const below = card.root.hidden ? $('timebar') : card.root
+      h = `${below.getBoundingClientRect().top - canvasTop}px`
+    }
+    for (const c of [canvas, globeCanvas]) {
+      c.style.top = canvasTop ? `${canvasTop}px` : ''
+      c.style.height = h
+    }
     width = canvas.clientWidth
     height = canvas.clientHeight
     for (const c of [canvas, globeCanvas]) {
@@ -566,7 +580,13 @@ export function mount() {
     if (selected < 0 || card.root.hidden) return
     const m = marks[selected]
     if (!m || m.hidden) return
-    const box = card.root.getBoundingClientRect()
+    const r = card.root.getBoundingClientRect()
+    const box = {
+      left: r.left,
+      right: r.right,
+      top: r.top - canvasTop,
+      bottom: r.bottom - canvasTop
+    }
     const pad = 14
     let elbow
     let end
@@ -968,6 +988,18 @@ export function mount() {
     }
   })
 
+  // On a phone the card opens compact. A tap on it anywhere but the name and
+  // Close opens the rest, the picture's link included, and once open a tap
+  // off its links folds it again.
+  card.root.addEventListener('click', (event) => {
+    if (!narrow.matches || event.target.closest('button, #card-wiki')) return
+    const open = card.root.classList.contains('open')
+    if (open && event.target.closest('a')) return
+    event.preventDefault()
+    card.root.classList.toggle('open', !open)
+    resize()
+  })
+
   // spherical interpolation, the short way round
   function slerp(a, b, t) {
     let d = a.reduce((s, c, i) => s + c * b[i], 0)
@@ -987,9 +1019,10 @@ export function mount() {
       if (row.index === index) row.button.setAttribute('aria-current', 'true')
       else row.button.removeAttribute('aria-current')
     }
-    const shown = !card.root.hidden
+    // the card's size moves the globe's room on a phone, so every pick resizes
+    card.root.classList.remove('open')
     card.root.hidden = index < 0
-    if (shown !== index >= 0) resize()
+    resize()
     if (index < 0) return
     const sat = sats[index]
     card.root.dataset.orbit = sat.geo ? 'geo' : 'leo'
@@ -1249,7 +1282,7 @@ export function mount() {
 
   canvas.addEventListener('pointerdown', (event) => {
     canvas.setPointerCapture(event.pointerId)
-    pointers.set(event.pointerId, { x: event.clientX, y: event.clientY })
+    pointers.set(event.pointerId, { x: event.offsetX, y: event.offsetY })
     spin = STILL
     swing = null
     if (pointers.size === 2) {
@@ -1258,9 +1291,9 @@ export function mount() {
       press = null
     } else {
       press = {
-        x: event.clientX,
-        y: event.clientY,
-        grab: placeAt(event.clientX, event.clientY),
+        x: event.offsetX,
+        y: event.offsetY,
+        grab: placeAt(event.offsetX, event.offsetY),
         moved: false,
         trail: []
       }
@@ -1268,16 +1301,16 @@ export function mount() {
   })
 
   canvas.addEventListener('pointermove', (event) => {
-    if (event.pointerType === 'mouse') cursor = { x: event.clientX, y: event.clientY }
+    if (event.pointerType === 'mouse') cursor = { x: event.offsetX, y: event.offsetY }
     const last = pointers.get(event.pointerId)
     if (!last) {
-      hovered = nearest(event.clientX, event.clientY)
+      hovered = nearest(event.offsetX, event.offsetY)
       canvas.classList.toggle('over', hovered >= 0)
       return
     }
-    const dx = event.clientX - last.x
-    const dy = event.clientY - last.y
-    pointers.set(event.pointerId, { x: event.clientX, y: event.clientY })
+    const dx = event.offsetX - last.x
+    const dy = event.offsetY - last.y
+    pointers.set(event.pointerId, { x: event.offsetX, y: event.offsetY })
     if (pointers.size === 2) {
       const [a, b] = [...pointers.values()]
       const next = Math.hypot(a.x - b.x, a.y - b.y)
@@ -1286,15 +1319,15 @@ export function mount() {
       return
     }
     if (!press) return
-    if (Math.hypot(event.clientX - press.x, event.clientY - press.y) > CLICK) press.moved = true
+    if (Math.hypot(event.offsetX - press.x, event.offsetY - press.y) > CLICK) press.moved = true
     // the grabbed ground follows the pointer, and off the globe the drag
     // turns at the set rate instead
-    if (!press.grab || !pin(press.grab, event.clientX, event.clientY)) {
+    if (!press.grab || !pin(press.grab, event.offsetX, event.offsetY)) {
       press.grab = null
       orientation = steer(orientation, gmst(sim), dy * grip(), -dx * grip())
     }
     const now = performance.now()
-    press.trail.push({ x: event.clientX, y: event.clientY, at: now })
+    press.trail.push({ x: event.offsetX, y: event.offsetY, at: now })
     while (press.trail.length && now - press.trail[0].at > FLICK_TAIL) press.trail.shift()
   })
   canvas.addEventListener('pointerleave', () => {
@@ -1308,8 +1341,8 @@ export function mount() {
     if (!press) return
     if (!press.moved) {
       const index = nearest(
-        event.clientX,
-        event.clientY,
+        event.offsetX,
+        event.offsetY,
         event.pointerType === 'touch' ? REACH_TOUCH : REACH
       )
       if (index >= 0 || selected >= 0) select(index, false)
@@ -1337,8 +1370,8 @@ export function mount() {
       event.preventDefault()
       zoomAt(
         Math.exp(-event.deltaY * (event.ctrlKey ? PINCH : WHEEL)),
-        event.clientX,
-        event.clientY
+        event.offsetX,
+        event.offsetY
       )
     },
     { passive: false }

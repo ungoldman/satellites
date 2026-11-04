@@ -384,6 +384,16 @@
       linear-gradient(var(--c), var(--c)) top right / 1px var(--k),
       linear-gradient(var(--c), var(--c)) bottom left / var(--k) 1px,
       linear-gradient(var(--c), var(--c)) bottom left / 1px var(--k),
+      linear-gradient(var(--c), var(--c)) bottom right / var(--k) 1px,
+      linear-gradient(var(--c), var(--c)) bottom right / 1px var(--k),
+      var(--dot) top / 100% 1px,
+      var(--dot) bottom / 100% 1px,
+      var(--dot-v) left / 1px 100%,
+      var(--dot-v) right / 1px 100%,
+      color-mix(in srgb, var(--bg) 82%, transparent);
+    background-repeat: no-repeat;
+  }
+  #card img { border: 1px solid var(--rule); }
   /* close: the top right corner mark closed into a square, crossed corner to
      corner, with a wider reach for a finger */
   #card .close {
@@ -408,16 +418,6 @@
   #card .close:focus-visible { background: var(--x), var(--hover); background-origin: border-box; }
   #card .close::before { content: ""; position: absolute; inset: -10px; }
   #card h2 { padding-right: 16px; }
-      linear-gradient(var(--c), var(--c)) bottom right / var(--k) 1px,
-      linear-gradient(var(--c), var(--c)) bottom right / 1px var(--k),
-      var(--dot) top / 100% 1px,
-      var(--dot) bottom / 100% 1px,
-      var(--dot-v) left / 1px 100%,
-      var(--dot-v) right / 1px 100%,
-      color-mix(in srgb, var(--bg) 82%, transparent);
-    background-repeat: no-repeat;
-  }
-  #card img { border: 1px solid var(--rule); }
   #card-caption { padding: 6px 0 0; }
   #card .body { padding: 0 0 12px; }
   #card h2 { font-size: 15px; letter-spacing: 0.2em; }
@@ -489,11 +489,24 @@
       top: auto;
       left: 16px;
       right: 16px;
-      bottom: calc(180px + env(safe-area-inset-bottom));
+      bottom: calc(122px + env(safe-area-inset-bottom));
       width: auto;
-      max-height: 45dvh;
+      max-height: 60dvh;
     }
     #card img { aspect-ratio: 2; }
+    /* the count gives way to a picked satellite's card until it closes */
+    body:has(#card:not([hidden])) #readout { display: none; }
+    /* compact until tapped open: name, height, and speed beside a thumbnail */
+    #card:not([hidden]):not(.open) { display: grid; grid-template-columns: 1fr 84px; cursor: pointer; }
+    #card.bare:not(.open) { grid-template-columns: 1fr; }
+    #card:not(.open) .body { min-width: 0; padding: 10px 0 10px 14px; }
+    #card:not(.open) .sub { margin: 2px 0 6px; }
+    #card:not(.open) .stats { padding: 0; border: 0; }
+    #card:not(.open) .stats .wide,
+    #card:not(.open) #card-caption,
+    #card.bare:not(.open) figure { display: none; }
+    #card:not(.open) figure { align-self: center; padding: 10px; }
+    #card:not(.open) img { aspect-ratio: 1; }
   }
   @media (pointer: coarse) {
     #controls button { width: 44px; height: 44px; font-size: 18px; }
