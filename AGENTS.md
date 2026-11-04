@@ -44,7 +44,7 @@ Keep free rotations of `orientation` out of input handling. The one `multiply` o
 - `src/index.html`: markup, styles, theme and style tokens (colour and mono, each light and dark), the satellite list, the card, the time bar, the ? panel with explainer and credits. Its last updated date is stamped by `pages.yml` from the last commit to `src/`, so the committed date is only what the dev server shows.
 - `src/og.png`: share image, a 1200x630 screenshot with the header and readout hidden.
 - `src/orbit.js`: OMM elements, two-body plus J2 propagation, sidereal time, geodetic, Sun direction, scales, the ground a satellite sees, sunlight, and the timing of a daylight pass. No DOM.
-- `src/view.js`: quaternion camera, projection, ray-sphere hit and occlusion, fling, key map, the view kept with the Earth, zoom toward a point, drag and contour scale with zoom, the latitude ring. No DOM.
+- `src/view.js`: quaternion camera, projection, ray-sphere hit and occlusion, fling, key map, the view kept with the Earth, zoom toward a point, drag and contour scale with zoom, the latitude ring, slerp, label overlap, and the leader line's geometry. No DOM.
 - `src/fleet.js`: the satellites shown, CelesTrak groups, image and link builders per source, slot guessing for full disks with the time of each. No DOM.
 - `src/format.js`: numbers, latitudes, and longitudes in words. No DOM.
 - `src/time.js`: the clock in words and the time bar's week either side of now. No DOM.
@@ -52,5 +52,5 @@ Keep free rotations of `orientation` out of input handling. The one `multiply` o
 - `src/bake.js`: stitches the tiles into `terrain-2.webp` and `terrain-3.webp`, reading them with its own PNG reader on `node:zlib` and encoding with `cwebp -lossless -exact`, which keeps every height. The Pages workflow carries the published copies forward and bakes only a missing one, since the heights do not change. Not covered by tests, like `src/elements.js`.
 - `src/globe.js`: the WebGL2 globe, ray-cast per pixel, its colour and mono styles in one shader, with height, contour, grid, and terminator.
 - `src/coast.js`: Natural Earth 1:110m land rings, generated once. Not linted. The globe fills them into a lat, lon mask and strokes them as coastlines.
-- `src/app.js`: wires it together. Overlay canvas with satellites, trails, labels, belt dial, latitude ring, view cone, and leader line, the card and list, the time bar, steering from keys, touch, pinch, and wheel, style and theme, saved view, location, element cache. Keys match `event.code`.
+- `src/app.js`: wires it together. Overlay canvas with satellites, trails, labels, belt dial, latitude ring, view cone, and leader line, the card and list, the time bar, steering from keys, touch, pinch, and wheel, style and theme, saved view, location, element cache. It draws at full rate only while something moves the view or time runs faster than 1×, and at `IDLE_EVERY` (10 fps) otherwise. A change that must show at once calls `poke()`. Keys match `event.code`.
 - `src/server.js`, `src/start.js`: dev server.
