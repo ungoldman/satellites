@@ -219,7 +219,7 @@
   #speeds button + button { border-left: 1px solid var(--rule); }
   #speeds button[aria-pressed="true"] { color: var(--fg); background: var(--pressed); }
   #timebar .track { position: relative; flex: 1; min-width: 0; height: 44px; }
-  #days { position: absolute; inset: 0; pointer-events: none; }
+  #days { position: absolute; inset: 0; z-index: 1; pointer-events: none; }
   #days span { position: absolute; top: 22px; height: 6px; border-left: 1px solid var(--rule); }
   #days span b { position: absolute; top: 8px; left: 0; transform: translateX(-50%); font-weight: 400; font-size: 9px; color: var(--faint); white-space: nowrap; }
   #days .now { top: 15px; height: 20px; border-left-color: var(--dim); }
@@ -274,7 +274,8 @@
     position: fixed;
     left: 16px;
     top: 64px;
-    width: 220px;
+    width: max-content;
+    min-width: 220px;
     max-height: calc(100dvh - 210px);
     overflow-y: auto;
     font-size: 11px;
@@ -429,7 +430,7 @@
   #roster button[aria-current] { background: none; border-left-color: var(--fg); }
   #roster button[aria-current]::before { color: var(--fg); }
   #readout { padding-left: 12px; border-left: 1px solid; border-image: linear-gradient(transparent, var(--rule)) 1; }
-  #speeds, #styles { border-radius: 0; }
+  #speeds, #timebar .play > button, #timebar .now { border-radius: 0; }
 
   #credits {
     box-sizing: border-box;
@@ -472,12 +473,14 @@
       height: auto;
       display: grid;
       grid-template-columns: 1fr auto;
-      grid-template-areas: "track track" "play play" "clock now";
+      grid-template-areas: "track track" "play now" "clock clock";
       row-gap: 4px;
     }
     #timebar .track { grid-area: track; }
     #timebar .play { grid-area: play; }
-    #timebar .clock { grid-area: clock; min-width: 0; text-align: left; }
+    #timebar .clock { grid-area: clock; display: flex; gap: 10px; align-items: baseline; min-width: 0; text-align: left; white-space: nowrap; }
+    #readout-time { flex: none; }
+    #readout-rate { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
     /* every other day labelled, the rest just ticks */
     #days span:nth-child(even) b { display: none; }
     #timebar .now { grid-area: now; }
