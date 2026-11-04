@@ -191,7 +191,11 @@
     gap: 2px;
     color: var(--dim);
     font-size: 11px;
-    letter-spacing: 0.04em;
+    padding-left: 12px;
+    border-left: 1px solid;
+    border-image: linear-gradient(transparent, var(--rule)) 1;
+    text-transform: uppercase;
+    letter-spacing: 0.12em;
     font-variant-numeric: tabular-nums;
     white-space: pre;
     pointer-events: none;
@@ -208,7 +212,8 @@
     align-items: center;
     height: 44px;
     font-size: 11px;
-    letter-spacing: 0.04em;
+    text-transform: uppercase;
+    letter-spacing: 0.12em;
     font-variant-numeric: tabular-nums;
     text-shadow: 0 0 3px var(--bg), 0 0 8px var(--bg);
   }
@@ -279,9 +284,11 @@
     max-height: calc(100dvh - 210px);
     overflow-y: auto;
     font-size: 11px;
-    letter-spacing: 0.04em;
+    text-transform: uppercase;
+    letter-spacing: 0.12em;
     font-variant-numeric: tabular-nums;
     scrollbar-width: none;
+    counter-reset: row;
   }
   #roster h3 {
     display: flex;
@@ -304,12 +311,12 @@
     width: 100%;
     padding: 3px 6px 3px 4px;
     border: 0;
-    border-radius: 4px;
+    border-left: 1px solid transparent;
+    border-radius: 0;
     color: var(--dim);
     text-align: left;
     text-shadow: 0 0 3px var(--bg), 0 0 8px var(--bg);
   }
-  #roster { counter-reset: row; }
   #roster li { counter-increment: row; }
   #roster button::before { content: counter(row, decimal-leading-zero); flex: none; width: 2ch; color: var(--faint); font-size: 10px; }
   #roster .name::before { display: inline-block; width: 1.6ch; font-size: 9px; }
@@ -319,12 +326,19 @@
   [data-style="mono"] #roster .leo .name::before { content: "\25B3"; }
   #roster .name { flex: 1; color: var(--fg); white-space: nowrap; }
   #roster .value { color: var(--faint); white-space: nowrap; }
-  #roster button[aria-current] { background: var(--pressed); }
+  #roster button[aria-current] { background: none; border-left-color: var(--fg); }
+  #roster button[aria-current]::before { color: var(--fg); }
   #roster button[aria-current] .name { font-weight: 600; }
   #roster button[aria-current] .value { color: var(--dim); }
 
-  /* the picked satellite: its picture first, then the numbers */
+  /* the picked satellite: its name and numbers, then its picture, inside
+     corner marks joined by a dotted edge, dashed like the leader line that
+     reaches it */
   #card {
+    --c: var(--fg);
+    --k: 14px;
+    --dot: repeating-linear-gradient(90deg, var(--rule) 0 2px, transparent 2px 5px);
+    --dot-v: repeating-linear-gradient(180deg, var(--rule) 0 2px, transparent 2px 5px);
     position: fixed;
     right: 16px;
     top: 60px;
@@ -332,51 +346,8 @@
     width: 320px;
     max-height: calc(100dvh - 140px);
     overflow-y: auto;
-    color: var(--dim);
-    background: color-mix(in srgb, var(--panel-bg) 92%, transparent);
-    border: 1px solid var(--rule);
-    border-radius: 10px;
-    font-size: 11px;
-    letter-spacing: 0.04em;
-    font-variant-numeric: tabular-nums;
-  }
-  #card[hidden] { display: none; }
-  #card figure { margin: 0; }
-  #card figure a { display: block; color: var(--dim); text-decoration: none; }
-  #card img { display: block; width: 100%; aspect-ratio: 1; object-fit: cover; background: var(--hover); border-bottom: 1px solid var(--rule); }
-  #card img[hidden] { display: none; }
-  #card-caption { display: block; padding: 8px 14px 0; font-size: 10px; color: var(--faint); }
-  #card figure a:hover #card-caption { color: var(--fg); }
-  #card.bare #card-caption { padding-top: 12px; color: var(--fg); text-decoration: underline; text-underline-offset: 2px; }
-  #card .body { padding: 10px 14px 14px; }
-  #card h2 { display: flex; gap: 10px; align-items: center; margin: 0; color: var(--fg); font-size: 16px; font-weight: 600; letter-spacing: 0.12em; text-transform: uppercase; }
-  #card h2::before { content: ""; width: 7px; height: 7px; flex: none; background: var(--geo); }
-  #card[data-orbit="leo"] h2::before { background: var(--leo); clip-path: polygon(50% 0, 100% 100%, 0 100%); }
-  #card h2 a { flex: 1; color: var(--fg); text-decoration: none; }
-  #card h2 a:hover, #card h2 a:focus-visible { text-decoration: underline; text-underline-offset: 3px; }
-  #card .sub { margin: 4px 0 12px; color: var(--dim); }
-  #card .stats { display: grid; grid-template-columns: 1fr 1fr; gap: 10px 12px; margin: 0; padding: 10px 0; border-block: 1px solid var(--hover); }
-  #card .stats div { min-width: 0; }
-  #card .stats .wide { grid-column: span 2; }
-  #card dt { margin-bottom: 2px; font-size: 9px; letter-spacing: 0.28em; text-transform: uppercase; color: var(--faint); }
-  #card dd { margin: 0; color: var(--fg); font-size: 18px; font-weight: 500; letter-spacing: 0.02em; white-space: nowrap; }
-  #card dd small { margin-left: 4px; font-size: 10px; color: var(--dim); font-weight: 400; }
-  #card .wide dd { font-size: 12px; }
-
-  /* one type and one card for both styles: corner marks joined by a dotted
-     edge, dashed like the leader line that reaches it */
-  #card,
-  #roster,
-  #readout,
-  #timebar { text-transform: uppercase; letter-spacing: 0.12em; }
-  #card {
-    --c: var(--fg);
-    --k: 14px;
-    --dot: repeating-linear-gradient(90deg, var(--rule) 0 2px, transparent 2px 5px);
-    --dot-v: repeating-linear-gradient(180deg, var(--rule) 0 2px, transparent 2px 5px);
-    border: 0;
-    border-radius: 0;
     padding: 10px;
+    color: var(--dim);
     background:
       linear-gradient(var(--c), var(--c)) top left / var(--k) 1px,
       linear-gradient(var(--c), var(--c)) top left / 1px var(--k),
@@ -392,8 +363,36 @@
       var(--dot-v) right / 1px 100%,
       color-mix(in srgb, var(--bg) 82%, transparent);
     background-repeat: no-repeat;
+    border: 0;
+    border-radius: 0;
+    font-size: 11px;
+    text-transform: uppercase;
+    letter-spacing: 0.12em;
+    font-variant-numeric: tabular-nums;
   }
-  #card img { border: 1px solid var(--rule); }
+  #card[hidden] { display: none; }
+  #card figure { margin: 0; }
+  #card figure a { display: block; color: var(--dim); text-decoration: none; }
+  #card img { display: block; width: 100%; aspect-ratio: 1; object-fit: cover; background: var(--hover); border: 1px solid var(--rule); }
+  #card img[hidden] { display: none; }
+  #card-caption { display: block; padding: 6px 0 0; font-size: 10px; color: var(--faint); }
+  #card figure a:hover #card-caption { color: var(--fg); }
+  #card.bare #card-caption { padding-top: 12px; color: var(--fg); text-decoration: underline; text-underline-offset: 2px; }
+  #card .body { padding: 0 0 12px; }
+  #card h2 { display: flex; gap: 10px; align-items: center; margin: 0; padding-right: 16px; color: var(--fg); font-size: 15px; font-weight: 600; letter-spacing: 0.2em; text-transform: uppercase; }
+  #card h2::before { content: ""; width: 6px; height: 6px; flex: none; border: 1px solid var(--geo); }
+  #card[data-orbit="leo"] h2::before { width: 8px; height: 8px; border: 0; background: var(--leo); clip-path: polygon(50% 0, 100% 100%, 50% 70%, 0 100%); }
+  #card h2 a { flex: 1; color: var(--fg); text-decoration: none; }
+  #card h2 a:hover, #card h2 a:focus-visible { text-decoration: underline; text-underline-offset: 3px; }
+  #card .sub { margin: 4px 0 12px; color: var(--dim); }
+  #card .stats { display: grid; grid-template-columns: 1fr 1fr; gap: 10px 12px; margin: 0; padding: 10px 0; border-block: 1px dashed var(--rule); }
+  #card .stats div { min-width: 0; }
+  #card .stats .wide { grid-column: span 2; }
+  #card dt { margin-bottom: 2px; font-size: 9px; letter-spacing: 0.28em; text-transform: uppercase; color: var(--faint); }
+  #card dd { margin: 0; color: var(--fg); font-size: 20px; font-weight: 400; letter-spacing: 0.02em; white-space: nowrap; }
+  #card dd small { margin-left: 4px; font-size: 10px; color: var(--dim); font-weight: 400; }
+  #card .wide dd { font-size: 11px; }
+
   /* close: the top right corner mark closed into a square, crossed corner to
      corner, with a wider reach for a finger */
   #card .close {
@@ -417,19 +416,6 @@
   #card .close:hover,
   #card .close:focus-visible { background: var(--x), var(--hover); background-origin: border-box; }
   #card .close::before { content: ""; position: absolute; inset: -10px; }
-  #card h2 { padding-right: 16px; }
-  #card-caption { padding: 6px 0 0; }
-  #card .body { padding: 0 0 12px; }
-  #card h2 { font-size: 15px; letter-spacing: 0.2em; }
-  #card h2::before { background: none; border: 1px solid var(--geo); width: 6px; height: 6px; }
-  #card[data-orbit="leo"] h2::before { border: 0; width: 8px; height: 8px; background: var(--leo); clip-path: polygon(50% 0, 100% 100%, 50% 70%, 0 100%); }
-  #card .stats { border-block-color: var(--rule); border-block-style: dashed; }
-  #card dd { font-weight: 400; font-size: 20px; }
-  #card .wide dd { font-size: 11px; }
-  #roster button { border-radius: 0; border-left: 1px solid transparent; }
-  #roster button[aria-current] { background: none; border-left-color: var(--fg); }
-  #roster button[aria-current]::before { color: var(--fg); }
-  #readout { padding-left: 12px; border-left: 1px solid; border-image: linear-gradient(transparent, var(--rule)) 1; }
   #speeds, #timebar .play > button, #timebar .now { border-radius: 0; }
 
   #credits {
