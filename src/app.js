@@ -1,10 +1,13 @@
 import { LAND } from './coast.js'
-import { FRESH, GROUPS, groupUrl, pick, picture, wikiUrl } from './fleet.js'
+import { fresh, pick, picture, STALE, snapshot, TRUSTED, wikiUrl } from './fleet.js'
+import { createGlobe } from './globe.js'
 import {
   elements,
   geodetic,
   gmst,
+  horizon,
   length,
+  passOver,
   period,
   position,
   RE,
@@ -13,20 +16,34 @@ import {
   speed,
   stationary,
   sun,
+  sunlit,
+  surface,
+  toward,
   track
 } from './orbit.js'
+import { loadTerrain, PHONE_ZOOM, TERRAIN_ZOOM } from './terrain.js'
+import { away, gap as gapWords, midnights, SPEEDS, share, utc, WEEK, within } from './time.js'
 import {
   ACTIONS,
+  between,
+  contourStep,
   DISTANCE,
   DRAG,
   facing,
   fit,
   fling,
+  grip as gripFor,
+  ground,
   hidden,
   hit,
   invert,
   KEYS,
+  keep,
+  LIMB,
+  multiply,
+  normalize,
   PICK_KEYS,
+  parallels,
   pixels,
   project,
   RATE_KEYS,
@@ -34,13 +51,20 @@ import {
   STEER,
   STILL,
   slow,
+  spinBy,
+  steer,
   toScreen,
   turn,
+  unkeep,
   ZOOM_KEYS,
   zoomBy
 } from './view.js'
 
 const THEME_KEY = 'satellites-bg'
+const STYLE_KEY = 'satellites-style'
+// the view, zoom, time, and pick, kept across reloads
+const VIEW_KEY = 'satellites-view'
+const HOME_ZOOM = 1.2
 const CACHE_KEY = 'satellites-gp'
 const FRAME = 1000 / 60
 // a drag let go faster than this many px per ms, over the last stretch of
@@ -49,20 +73,24 @@ const FLICK = 0.2
 const FLICK_TAIL = 90
 // px a press may wander and still count as a click
 const CLICK = 6
-// px from a satellite a click still picks it
-const REACH = 18
+// px from a satellite a press still picks it, more for a finger
+const REACH = 24
+const REACH_TOUCH = 32
 const WHEEL = 0.0015
 const PINCH = 0.01
-// most px across the ray-cast globe before it is scaled up
+// most px across the canvas globe, where WebGL2 is missing, before it is
+// scaled up
 const GLOBE_RES = 360
 // ms between card and readout updates, slow enough to read
 const READOUT_EVERY = 250
 // ms to turn the view onto a picked satellite
 const SWING = 700
-// the most Himawari slots to step back through when the newest is missing
+// the most slots to step back through when the newest picture is missing
 const BACK = 6
 // steps along the plumb line
 const PLUMB = 24
+// samples in each trail
+const TRAIL = 20
 const RAD = Math.PI / 180
 const GEO_KM = 42164
 // the geostationary belt
@@ -75,11 +103,21 @@ const BELT = Array.from({ length: 145 }, (_, k) => [
 export function mount() {
   const teardown = new AbortController()
   const on = (type, listener) => addEventListener(type, listener, { signal: teardown.signal })
+  // 0 colour, 1 mono
+  let LOOK = 0
   const canvas = document.getElementById('canvas')
+  const globeCanvas = document.getElementById('globe')
   const ctx = canvas.getContext('2d')
   const credits = document.getElementById('credits')
   const picker = document.getElementById('pick')
-  const rates = document.getElementById('rate')
+  const speeds = document.getElementById('speeds')
+  const scrub = document.getElementById('scrub')
+  const days = document.getElementById('days')
+  const gap = document.getElementById('gap')
+  const styles = document.getElementById('styles')
+  const timebar = document.getElementById('timebar')
+  const staleNote = document.getElementById('stale')
+  const roster = document.getElementById('roster')
   const themeColor = document.querySelector('meta[name="theme-color"]')
   const buttons = Object.fromEntries(
     [...document.querySelectorAll('[data-action]:not([inert] *)')].map((el) => [
@@ -92,6 +130,7 @@ export function mount() {
     time: $('readout-time'),
     rate: $('readout-rate'),
     count: $('readout-count'),
+    cursor: $('readout-cursor'),
     note: $('readout-note')
   }
   const card = {
@@ -102,6 +141,7 @@ export function mount() {
     alt: $('card-alt'),
     speed: $('card-speed'),
     below: $('card-below'),
+    sun: $('card-sun'),
     link: $('card-link'),
     img: $('card-img'),
     caption: $('card-caption'),
@@ -109,12 +149,13 @@ export function mount() {
   }
 
   let sats = []
+  let rows = []
   let selected = -1
   let sim = Date.now()
   let rate = 0
   let paused = false
   let scale = 'compressed'
-  let zoom = 1
+  let zoom = HOME_ZOOM
   // opens on the morning side, the terminator in view
   const toSun = sun(sim)
   let orientation = facing(Math.atan2(toSun[1], toSun[0]) - 45 * RAD, 20)
@@ -122,9 +163,15 @@ export function mount() {
   let swing = null
   let width = 0
   let height = 0
+  let dpr = 1
   let ink = {}
-  // screen positions from the last frame, for clicks
   let marks = []
+  let cursor = null
+  let hovered = -1
+  // where the viewer is, once they share it
+  let here = null
+  // the time of the data, when the only data there is is too old to trust
+  let locked = null
   const held = new Set()
   const pointers = new Map()
   let span = 0
@@ -135,10 +182,6 @@ export function mount() {
 
   // coastlines and graticule as unit vectors in the Earth's own frame, turned
   // into the inertial frame each frame by sidereal time
-  const unitAt = (lat, lon) => {
-    const c = Math.cos(lat * RAD)
-    return [c * Math.cos(lon * RAD), c * Math.sin(lon * RAD), Math.sin(lat * RAD)]
-  }
   // a ring's edge runs along the map's seam and down to the South Pole where
   // it wraps Antarctica, which is no coastline, so lines break there
   const seam = (lon, lat) => Math.abs(lon) > 179.9 || lat < -89.9
@@ -148,14 +191,14 @@ export function mount() {
       const [lon, lat] = [ring[k], ring[k + 1]]
       const prev = k ? [ring[k - 2], ring[k - 1]] : null
       if (prev && seam(lon, lat) && seam(...prev)) lines.push([])
-      lines.at(-1).push(unitAt(lat, lon))
+      lines.at(-1).push(toward(lat, lon))
     }
     return lines.filter((line) => line.length > 1)
   })
 
-  // land as a lat, lon raster the globe's pixels look up, painted once
   const MASK_W = 1024
   const MASK_H = 512
+  // land as a lat, lon raster, for the shader and the canvas globe
   const mask = (() => {
     const c = document.createElement('canvas')
     c.width = MASK_W
@@ -180,43 +223,67 @@ export function mount() {
   })()
   const graticule = [
     ...[-60, -30, 0, 30, 60].map((lat) =>
-      Array.from({ length: 73 }, (_, k) => unitAt(lat, k * 5 - 180))
+      Array.from({ length: 73 }, (_, k) => toward(lat, k * 5 - 180))
     ),
     ...Array.from({ length: 12 }, (_, m) =>
-      Array.from({ length: 35 }, (_, k) => unitAt(k * 5 - 85, m * 30 - 180))
+      Array.from({ length: 35 }, (_, k) => toward(k * 5 - 85, m * 30 - 180))
     )
   ]
 
-  // on a phone the card sits over the lower half, so the globe takes the space
-  // above it
+  // the shader globe, or the slower canvas one where WebGL2 is missing
+  let gl = null
+  try {
+    gl = createGlobe(globeCanvas, mask, MASK_W, MASK_H)
+  } catch (err) {
+    console.error(err)
+  }
+  if (gl) {
+    const phone = matchMedia('(max-width: 600px)').matches
+    loadTerrain(teardown.signal, phone ? PHONE_ZOOM : TERRAIN_ZOOM)
+      .then((t) => gl.terrain(t))
+      .catch(() => {})
+  }
+
   const narrow = matchMedia('(max-width: 600px)')
 
   function resize() {
-    const dpr = window.devicePixelRatio || 1
-    canvas.style.height =
+    dpr = Math.min(2, window.devicePixelRatio || 1)
+    const h =
       narrow.matches && !card.root.hidden ? `${card.root.getBoundingClientRect().top}px` : ''
+    canvas.style.height = h
+    globeCanvas.style.height = h
     width = canvas.clientWidth
     height = canvas.clientHeight
-    canvas.width = width * dpr
-    canvas.height = height * dpr
+    for (const c of [canvas, globeCanvas]) {
+      c.width = width * dpr
+      c.height = height * dpr
+    }
     ctx.setTransform(dpr, 0, 0, dpr, 0, 0)
   }
 
   const view = () => zoom * fit(SCALES[scale](GEO_KM) * 1.05)
 
-  // the Earth's frame to the screen at sidereal angle g
   function spun([x, y, z], g) {
     const c = Math.cos(g)
     const s = Math.sin(g)
     return toScreen(orientation, [x * c - y * s, x * s + y * c, z])
   }
 
-  // Lit sphere, ray-cast per pixel at low resolution and scaled up, land and
-  // sea looked up from the mask. Night fades in across the terminator rather
-  // than cutting.
+  // a point in the inertial frame on screen, and whether the Earth hides it
+  function at(v, z) {
+    const p = toScreen(orientation, scaled(v, scale))
+    const [x, y] = project(p, width, height, z)
+    return { x, y, hidden: hidden(p) }
+  }
+
+  // px from the center to the edge of the globe
+  const limbOf = (z) => pixels(width, height, z) * LIMB
+
+  // Where WebGL2 is missing: the globe ray-cast per pixel at low resolution
+  // and scaled up, land from the mask, lit by the Sun.
   function drawGlobe(z, light, g) {
     const r = pixels(width, height, z)
-    const limb = (r * DISTANCE) / Math.sqrt(DISTANCE ** 2 - 1)
+    const limb = limbOf(z)
     const side = Math.min(GLOBE_RES, Math.ceil(2 * limb))
     if (globe.width !== side) {
       globe.width = side
@@ -225,10 +292,6 @@ export function mount() {
     const image = globeCtx.createImageData(side, side)
     const px = (2 * limb) / side
     const [c0, c1, c2] = invert(orientation, g)
-    const tones = [
-      [ink.ocean, ink.oceanNight],
-      [ink.land, ink.landNight]
-    ]
     for (let j = 0; j < side; j++) {
       for (let i = 0; i < side; i++) {
         const p = hit(((i + 0.5) * px - limb) / r, ((j + 0.5) * px - limb) / r)
@@ -238,34 +301,16 @@ export function mount() {
         const ez = p[0] * c0[2] + p[1] * c1[2] + p[2] * c2[2]
         const mx = Math.floor(((Math.atan2(ey, ex) / Math.PI + 1) / 2) * MASK_W) % MASK_W
         const my = Math.min(MASK_H - 1, Math.floor((0.5 - Math.asin(ez) / Math.PI) * MASK_H))
-        const [day, night] = tones[mask[my * MASK_W + mx]]
         const lit = p[0] * light[0] + p[1] * light[1] + p[2] * light[2]
         const t = Math.min(1, Math.max(0, (lit + 0.08) / 0.3))
-        // limb darkening, so the ball reads as round
-        const rim = 0.75 + 0.25 * -p[2]
+        const a = (mask[my * MASK_W + mx] ? 0.2 : 0.07) * (0.4 + 0.6 * t)
         const o = (j * side + i) * 4
-        image.data[o] = (night[0] + (day[0] - night[0]) * t) * rim
-        image.data[o + 1] = (night[1] + (day[1] - night[1]) * t) * rim
-        image.data[o + 2] = (night[2] + (day[2] - night[2]) * t) * rim
+        for (let k = 0; k < 3; k++)
+          image.data[o + k] = 255 * (ink.bg[k] + (ink.fg3[k] - ink.bg[k]) * a)
         image.data[o + 3] = 255
       }
     }
     globeCtx.putImageData(image, 0, 0)
-    // a thin glow of air past the limb
-    const air = ctx.createRadialGradient(
-      width / 2,
-      height / 2,
-      limb,
-      width / 2,
-      height / 2,
-      limb * 1.08
-    )
-    air.addColorStop(0, `rgb(${ink.air} / 0.35)`)
-    air.addColorStop(1, `rgb(${ink.air} / 0)`)
-    ctx.fillStyle = air
-    ctx.beginPath()
-    ctx.arc(width / 2, height / 2, limb * 1.08, 0, 2 * Math.PI)
-    ctx.fill()
     ctx.imageSmoothingEnabled = true
     ctx.drawImage(globe, width / 2 - limb, height / 2 - limb, 2 * limb, 2 * limb)
   }
@@ -294,12 +339,12 @@ export function mount() {
 
   // a path through space, solid in front of the Earth and dashed behind it,
   // or only the front part
-  function drawPath(points, z, style, behind = true) {
+  function drawPath(points, z, style, behind = true, dash = []) {
     const screen = points.map((v) => toScreen(orientation, scaled(v, scale)))
     ctx.strokeStyle = style
     ctx.lineWidth = 1
     for (const back of behind ? [true, false] : [false]) {
-      ctx.setLineDash(back ? [2, 4] : [])
+      ctx.setLineDash(back ? [2, 4] : dash)
       ctx.globalAlpha = back ? 0.5 : 1
       ctx.beginPath()
       let down = false
@@ -319,42 +364,394 @@ export function mount() {
     ctx.globalAlpha = 1
   }
 
-  // Those behind the Earth are left out, unless picked. A label that would
-  // overlap one already placed is skipped, the picked one placed first.
+  const lonLabel = (lon) =>
+    lon === 0 || lon === 180 ? `${lon}°` : `${Math.abs(lon)}°${lon < 0 ? 'W' : 'E'}`
+
+  // the geostationary belt as a dial of longitude, turning with the Earth
+  function drawBelt(z, g) {
+    drawPath(BELT, z, ink.belt, false)
+    ctx.font = `9px ${ink.mono}`
+    ctx.textAlign = 'center'
+    ctx.textBaseline = 'middle'
+    ctx.letterSpacing = '0.12em'
+    for (let k = 0; k < 36; k++) {
+      const lon = k * 10 - 180
+      const a = lon * RAD + g
+      const u = [Math.cos(a), Math.sin(a), 0]
+      const major = k % 3 === 0
+      const from = at(
+        u.map((c) => c * GEO_KM * 0.985),
+        z
+      )
+      const to = at(
+        u.map((c) => c * GEO_KM * (major ? 1.045 : 1.02)),
+        z
+      )
+      if (from.hidden) continue
+      ctx.strokeStyle = major ? ink.tick : ink.belt
+      ctx.beginPath()
+      ctx.moveTo(from.x, from.y)
+      ctx.lineTo(to.x, to.y)
+      ctx.stroke()
+      if (!major) continue
+      const l = at(
+        u.map((c) => c * GEO_KM * 1.1),
+        z
+      )
+      ctx.fillStyle = ink.faint
+      ctx.fillText(lonLabel(lon), l.x, l.y)
+    }
+    ctx.textAlign = 'start'
+    ctx.letterSpacing = '0px'
+  }
+
+  function drawLimb(z) {
+    ctx.strokeStyle = ink.limb
+    ctx.lineWidth = 1
+    ctx.beginPath()
+    ctx.arc(width / 2, height / 2, limbOf(z), 0, 2 * Math.PI)
+    ctx.stroke()
+  }
+
+  // a ring round the Earth that reads latitude where it meets the edge
+  function drawBezel(z, g) {
+    const cx = width / 2
+    const cy = height / 2
+    const r = limbOf(z) * 1.14 + 6
+    ctx.lineWidth = 1
+    ctx.strokeStyle = ink.belt
+    ctx.beginPath()
+    ctx.arc(cx, cy, r, 0, 2 * Math.PI)
+    ctx.stroke()
+    ctx.font = `9px ${ink.mono}`
+    ctx.letterSpacing = '0.12em'
+    ctx.textAlign = 'center'
+    ctx.textBaseline = 'middle'
+    // a tick every 10°, a label every 30°, longitude being on the belt
+    for (const { v, angles, fade } of parallels(orientation, g)) {
+      ctx.globalAlpha = fade
+      ctx.strokeStyle = ink.tick
+      ctx.fillStyle = ink.faint
+      const major = v % 30 === 0
+      ctx.beginPath()
+      for (const a of angles) {
+        ctx.moveTo(cx + Math.cos(a) * r, cy + Math.sin(a) * r)
+        ctx.lineTo(
+          cx + Math.cos(a) * (r + (major ? 9 : 4)),
+          cy + Math.sin(a) * (r + (major ? 9 : 4))
+        )
+      }
+      ctx.stroke()
+      if (!major) continue
+      const text = v === 0 ? 'EQ' : `${Math.abs(v)}°${v > 0 ? 'N' : 'S'}`
+      for (const a of angles)
+        ctx.fillText(text, cx + Math.cos(a) * (r + 22), cy + Math.sin(a) * (r + 22))
+    }
+    ctx.globalAlpha = 1
+    ctx.textAlign = 'start'
+    ctx.letterSpacing = '0px'
+  }
+
+  // where each satellite has just been, fading out behind it
+  function drawTrails(z) {
+    for (const m of marks) {
+      if (m.hidden) continue
+      const sat = sats[m.index]
+      // geostationary ones turn with the Earth, so a shorter tail keeps it off
+      // the globe
+      const reach = (period(sat.el) * 60000) / (sat.geo ? 48 : 12)
+      let prev = m
+      ctx.strokeStyle = sat.geo ? ink.geo : ink.leo
+      ctx.lineWidth = m.index === selected ? 1.5 : 1
+      for (let k = 1; k <= TRAIL; k++) {
+        const p = at(position(sat.el, sim - (reach * k) / TRAIL), z)
+        if (p.hidden) break
+        ctx.globalAlpha = 0.55 * (1 - k / TRAIL)
+        ctx.beginPath()
+        ctx.moveTo(prev.x, prev.y)
+        ctx.lineTo(p.x, p.y)
+        ctx.stroke()
+        prev = p
+      }
+    }
+    ctx.globalAlpha = 1
+    ctx.lineWidth = 1
+  }
+
+  // a craft drawn along its heading: a chevron for the polar imagers, a body
+  // with solar wings for geostationary
+  function glyph(m, sat, on, hover) {
+    const color = sat.geo ? ink.geo : ink.leo
+    if (hover && !on) {
+      ctx.save()
+      ctx.strokeStyle = color
+      ctx.fillStyle = color
+      ctx.globalAlpha *= 0.14
+      ctx.beginPath()
+      ctx.arc(m.x, m.y, 14, 0, 2 * Math.PI)
+      ctx.fill()
+      ctx.globalAlpha /= 0.14 / 0.8
+      ctx.stroke()
+      ctx.restore()
+    }
+    const k = on ? 1.4 : 1
+    ctx.save()
+    ctx.translate(m.x, m.y)
+    ctx.rotate(m.heading)
+    ctx.strokeStyle = color
+    ctx.fillStyle = color
+    ctx.lineWidth = 1
+    ctx.beginPath()
+    if (sat.geo) {
+      ctx.rect(-2.5 * k, -2.5 * k, 5 * k, 5 * k)
+      ctx.rect(-1.5 * k, -10 * k, 3 * k, 6 * k)
+      ctx.rect(-1.5 * k, 4 * k, 3 * k, 6 * k)
+    } else {
+      ctx.moveTo(6 * k, 0)
+      ctx.lineTo(-4 * k, 4 * k)
+      ctx.lineTo(-1.5 * k, 0)
+      ctx.lineTo(-4 * k, -4 * k)
+      ctx.closePath()
+    }
+    if (LOOK) {
+      ctx.fillStyle = ink.bgCss
+      ctx.fill()
+      ctx.stroke()
+    } else ctx.fill()
+    if (sat.geo) {
+      ctx.beginPath()
+      ctx.moveTo(0, -4 * k)
+      ctx.lineTo(0, 4 * k)
+      ctx.stroke()
+    }
+    // the way it is heading, as long as it is fast
+    const ahead = (LOOK ? 5 : 4) * m.kms
+    ctx.globalAlpha = on ? 0.8 : 0.35
+    ctx.setLineDash(LOOK ? [2, 3] : [])
+    ctx.beginPath()
+    ctx.moveTo(8 * k, 0)
+    ctx.lineTo(8 * k + ahead, 0)
+    if (!LOOK) {
+      ctx.moveTo(8 * k + ahead - 3, -2)
+      ctx.lineTo(8 * k + ahead, 0)
+      ctx.lineTo(8 * k + ahead - 3, 2)
+    }
+    ctx.stroke()
+    ctx.setLineDash([])
+    ctx.restore()
+    if (!on) return
+    ctx.strokeStyle = color
+    ctx.beginPath()
+    for (const [sx, sy] of [
+      [-1, -1],
+      [1, -1],
+      [1, 1],
+      [-1, 1]
+    ]) {
+      ctx.moveTo(m.x + sx * 15, m.y + sy * 9)
+      ctx.lineTo(m.x + sx * 15, m.y + sy * 15)
+      ctx.lineTo(m.x + sx * 9, m.y + sy * 15)
+    }
+    ctx.stroke()
+  }
+
+  // A callout from the picked satellite to the card: a 45° leg, then straight
+  // into the card's nearest edge. Drawn under the satellites and labels.
+  function drawLeader() {
+    if (selected < 0 || card.root.hidden) return
+    const m = marks[selected]
+    if (!m || m.hidden) return
+    const box = card.root.getBoundingClientRect()
+    const pad = 14
+    let elbow
+    let end
+    if (m.x < box.left - 24) {
+      const y = Math.min(box.bottom - pad, Math.max(box.top + pad, m.y))
+      end = [box.left, y]
+      elbow = [Math.min(m.x + Math.abs(y - m.y), box.left - 16), y]
+    } else if (m.y < box.top - 24) {
+      const x = Math.min(box.right - pad, Math.max(box.left + pad, m.x))
+      end = [x, box.top]
+      elbow = [x, Math.min(m.y + Math.abs(x - m.x), box.top - 16)]
+    } else return
+    const lead = Math.hypot(elbow[0] - m.x, elbow[1] - m.y) > 1 ? elbow : end
+    const d = Math.hypot(lead[0] - m.x, lead[1] - m.y)
+    if (d < 20) return
+    const start = [m.x + ((lead[0] - m.x) / d) * 19, m.y + ((lead[1] - m.y) / d) * 19]
+    const color = sats[selected].geo ? ink.geo : ink.leo
+    ctx.strokeStyle = color
+    ctx.lineWidth = 1
+    ctx.globalAlpha = 0.6
+    ctx.setLineDash([2, 3])
+    ctx.beginPath()
+    ctx.moveTo(...start)
+    if (lead === elbow) ctx.lineTo(...elbow)
+    ctx.lineTo(...end)
+    ctx.stroke()
+    ctx.setLineDash([])
+    ctx.globalAlpha = 1
+    ctx.fillStyle = ink.bgCss
+    ctx.beginPath()
+    ctx.arc(end[0], end[1], 3, 0, 2 * Math.PI)
+    ctx.fill()
+    ctx.stroke()
+  }
+
   function drawSats() {
     ctx.font = `10px ${ink.mono}`
     ctx.textBaseline = 'middle'
+    ctx.letterSpacing = '0.1em'
     const placed = []
-    const order = [...marks].sort((a, b) => (b.index === selected) - (a.index === selected))
+    const rank = (m) => (m.index === selected ? 2 : m.index === hovered ? 1 : 0)
+    const order = [...marks].sort((a, b) => rank(b) - rank(a))
     for (const m of order) {
       if (m.hidden && m.index !== selected) continue
       const sat = sats[m.index]
       const on = m.index === selected
-      const color = sat.geo ? ink.geo : ink.leo
+      const hover = m.index === hovered
+      m.label = null
       ctx.globalAlpha = m.hidden ? 0.3 : 1
-      ctx.fillStyle = color
-      ctx.beginPath()
-      ctx.arc(m.x, m.y, on ? 4 : 2.5, 0, 2 * Math.PI)
-      ctx.fill()
-      if (on) {
-        ctx.strokeStyle = color
-        ctx.lineWidth = 1
-        ctx.beginPath()
-        ctx.arc(m.x, m.y, 9, 0, 2 * Math.PI)
-        ctx.stroke()
-      }
-      const x = m.x + (on ? 13 : 6)
-      const label = [x - 2, m.y - 7, x + ctx.measureText(sat.name).width + 2, m.y + 7]
+      glyph(m, sat, on, hover)
+      const name = sat.name.toUpperCase()
+      const x = m.x + (on ? 20 : 11)
+      const nw = ctx.measureText(name).width
+      const vw = ctx.measureText(m.value).width
+      const label = [x - 2, m.y - 7, x + nw + 8 + vw, m.y + 7]
       if (
         placed.some((o) => label[0] < o[2] && o[0] < label[2] && label[1] < o[3] && o[1] < label[3])
       ) {
         continue
       }
       placed.push(label)
-      ctx.fillStyle = on ? ink.fg : ink.dim
-      ctx.fillText(sat.name, x, m.y)
+      m.label = label
+      ctx.lineJoin = 'round'
+      ctx.lineWidth = 4
+      ctx.strokeStyle = ink.bgCss
+      ctx.strokeText(name, x, m.y)
+      ctx.strokeText(m.value, x + nw + 6, m.y)
+      ctx.fillStyle = on || hover ? ink.fg : ink.dim
+      ctx.fillText(name, x, m.y)
+      ctx.fillStyle = ink.faint
+      ctx.fillText(m.value, x + nw + 6, m.y)
+      ctx.lineWidth = 1
     }
     ctx.globalAlpha = 1
+    ctx.letterSpacing = '0px'
+  }
+
+  // the picked satellite's ground, the edge of what it sees, and the cone
+  // from it to that edge
+  function drawView(z, sat) {
+    const r = position(sat.el, sim)
+    const color = sat.geo ? ink.geo : ink.leo
+    const rim = horizon(r)
+    drawPath(rim, z, color, false, LOOK ? [3, 3] : [])
+    const s = at(r, z)
+    const below = at(
+      r.map((c) => (c * RE) / length(r)),
+      z
+    )
+    const d = [below.x - s.x, below.y - s.y]
+    const front = rim.map((v) => at(v, z)).filter((p) => !p.hidden)
+    if (!front.length) return
+    ctx.strokeStyle = color
+    ctx.beginPath()
+    if (LOOK) {
+      ctx.globalAlpha = 0.16
+      for (let k = 0; k < front.length; k += 12) {
+        ctx.moveTo(s.x, s.y)
+        ctx.lineTo(front[k].x, front[k].y)
+      }
+    } else {
+      ctx.globalAlpha = 0.4
+      const side = (p) =>
+        (d[0] * (p.y - s.y) - d[1] * (p.x - s.x)) / Math.hypot(p.x - s.x, p.y - s.y)
+      const sorted = [...front].sort((a, b) => side(a) - side(b))
+      for (const p of [sorted[0], sorted.at(-1)]) {
+        ctx.moveTo(s.x, s.y)
+        ctx.lineTo(p.x, p.y)
+      }
+    }
+    ctx.stroke()
+    ctx.globalAlpha = 1
+  }
+
+  // degrees a pixel of drag turns at the current zoom
+  const grip = () => gripFor(pixels(width, height, view()))
+
+  // the point on the globe under a screen point, in screen space
+  const groundAt = (x, y) => {
+    const r = pixels(width, height, view())
+    return hit((x - width / 2) / r, (y - height / 2) / r)
+  }
+
+  // zoom by factor, turning the globe so the ground under x, y stays there
+  function zoomAt(factor, x, y) {
+    const before = groundAt(x, y)
+    zoom = zoomBy(zoom, factor)
+    const after = groundAt(x, y)
+    const shift = before && after && between(before, after)
+    if (shift) orientation = normalize(multiply(shift, orientation))
+  }
+
+  // the viewer's place: a ring and a dot, while it faces us
+  function drawHere(z) {
+    if (!here) return
+    const p = at(
+      surface(here.lat, here.lon, sim).map((c) => c * RE),
+      z
+    )
+    if (p.hidden) return
+    ctx.strokeStyle = ink.fg
+    ctx.fillStyle = ink.fg
+    ctx.lineWidth = 1
+    ctx.beginPath()
+    ctx.arc(p.x, p.y, 6, 0, 2 * Math.PI)
+    ctx.stroke()
+    ctx.beginPath()
+    ctx.arc(p.x, p.y, 1.5, 0, 2 * Math.PI)
+    ctx.fill()
+  }
+
+  function underCursor(z, g) {
+    if (!cursor) return null
+    const r = pixels(width, height, z)
+    return ground(orientation, g, (cursor.x - width / 2) / r, (cursor.y - height / 2) / r)
+  }
+
+  let cursorText = ''
+  function drawCursor(z, g) {
+    const spot = underCursor(z, g)
+    const text = spot ? `${ns(spot.lat)}  ${ew(spot.lon)}` : ''
+    if (text !== cursorText) {
+      cursorText = text
+      readout.cursor.textContent = text ? `cursor ${text}` : ''
+    }
+    if (!spot || press) return
+    ctx.strokeStyle = ink.fg
+    ctx.lineWidth = 1
+    ctx.beginPath()
+    ctx.arc(cursor.x, cursor.y, 7, 0, 2 * Math.PI)
+    for (const [dx, dy] of [
+      [1, 0],
+      [-1, 0],
+      [0, 1],
+      [0, -1]
+    ]) {
+      ctx.moveTo(cursor.x + dx * 10, cursor.y + dy * 10)
+      ctx.lineTo(cursor.x + dx * 16, cursor.y + dy * 16)
+    }
+    ctx.stroke()
+    ctx.font = `9px ${ink.mono}`
+    ctx.letterSpacing = '0.1em'
+    ctx.textBaseline = 'middle'
+    ctx.lineWidth = 4
+    ctx.strokeStyle = ink.bgCss
+    ctx.strokeText(text, cursor.x + 20, cursor.y + 14)
+    ctx.fillStyle = ink.fg
+    ctx.fillText(text, cursor.x + 20, cursor.y + 14)
+    ctx.letterSpacing = '0px'
+    ctx.lineWidth = 1
   }
 
   function draw() {
@@ -363,19 +760,72 @@ export function mount() {
     const g = gmst(sim)
     const light = toScreen(orientation, sun(sim))
     marks = sats.map((sat, index) => {
-      const p = toScreen(orientation, scaled(position(sat.el, sim), scale))
+      const r = position(sat.el, sim)
+      const p = toScreen(orientation, scaled(r, scale))
       const [x, y] = project(p, width, height, z)
-      return { index, x, y, hidden: hidden(p) }
+      const next = at(position(sat.el, sim + (period(sat.el) * 60000) / 400), z)
+      const below = geodetic(r, sim)
+      return {
+        index,
+        x,
+        y,
+        hidden: hidden(p),
+        heading: Math.atan2(next.y - y, next.x - x),
+        kms: speed(sat.el, length(r)),
+        value: sat.geo ? ew(below.lon, 1) : `${fmt(below.alt)} km`
+      }
     })
-    drawGlobe(z, light, g)
-    drawLines(graticule, g, z, ink.grid, 1)
-    drawLines(coast, g, z, ink.coast, 0.8)
-    drawPath(BELT, z, ink.grid, false)
+    let seen = null
+    if (selected >= 0) {
+      const s = sats[selected]
+      const r = position(s.el, sim)
+      seen = {
+        u: toScreen(
+          orientation,
+          r.map((c) => c / length(r))
+        ),
+        cos: RE / length(r),
+        ink: s.geo ? ink.geoRgb : ink.leoRgb
+      }
+    }
+    // the shader traces the coast from heights once the globe is large enough
+    // to hold them, the vector coast stands in below that
+    const rPx = pixels(width, height, z)
+    const sharp = Math.min(1, Math.max(0, (rPx - 220) / 140))
+    if (gl) {
+      gl.draw({
+        width,
+        height,
+        dpr,
+        r: rPx,
+        distance: DISTANCE,
+        inv: invert(orientation, g),
+        light,
+        ink: ink.fg3,
+        bg: ink.bg,
+        seen,
+        look: LOOK,
+        coast: sharp,
+        step: contourStep(rPx),
+        palette: ink.palette
+      })
+      if (sharp < 1) {
+        ctx.globalAlpha = 1 - sharp
+        drawLines(coast, g, z, ink.coast, LOOK ? 1 : 0.9)
+        ctx.globalAlpha = 1
+      }
+    } else {
+      drawGlobe(z, light, g)
+      drawLines(graticule, g, z, ink.grid, 1)
+      drawLines(coast, g, z, ink.coast, 0.8)
+    }
+    drawLimb(z)
+    drawBezel(z, g)
+    drawBelt(z, g)
+    drawTrails(z)
     if (selected >= 0) {
       const sat = sats[selected]
       if (!sat.geo) drawPath(track(sat.el, sim - period(sat.el) * 30000), z, ink.track)
-      // a plumb line from the satellite down to the ground below it, in steps
-      // so it can pass behind the limb partway
       const r = position(sat.el, sim)
       const ground = RE / length(r)
       drawPath(
@@ -386,40 +836,100 @@ export function mount() {
         z,
         ink.track
       )
+      drawView(z, sat)
     }
+    drawLeader()
     drawSats()
+    drawHere(z)
+    drawCursor(z, g)
   }
 
   const fmt = (n, digits = 0) =>
     n.toLocaleString('en-US', { minimumFractionDigits: digits, maximumFractionDigits: digits })
-  const ns = (lat) => `${fmt(Math.abs(lat), 2)}° ${lat < -0.005 ? 'S' : 'N'}`
-  const ew = (lon) => `${fmt(Math.abs(lon), 2)}° ${lon < -0.005 ? 'W' : 'E'}`
+  const ns = (lat, d = 2) => `${fmt(Math.abs(lat), d)}°${lat < -0.005 ? 'S' : 'N'}`
+  const ew = (lon, d = 2) => `${fmt(Math.abs(lon), d)}°${lon < -0.005 ? 'W' : 'E'}`
+
+  let scrubbing = false
+  let dayStamp = -1
+  // the knob where the clock is, a band from now to it with the gap written
+  // on it when it fits, and a tick at each UTC midnight, rebuilt once a
+  // minute as the week slides
+  function showScrub(off) {
+    if (locked !== null) return
+    if (!scrubbing) scrub.value = String(Math.round(off / 1000))
+    const shown = Number(scrub.value) * 1000
+    const pos = share(shown) * 100
+    scrub.style.setProperty('--a', `${Math.min(pos, 50)}%`)
+    scrub.style.setProperty('--b', `${Math.max(pos, 50)}%`)
+    gap.textContent = gapWords(shown)
+    gap.style.left = `${(pos + 50) / 2}%`
+    const room = (Math.abs(pos - 50) / 100) * scrub.clientWidth
+    gap.hidden = !gap.textContent || room < gap.textContent.length * 7 + 12
+    const stamp = Math.floor(Date.now() / 60000)
+    if (stamp === dayStamp) return
+    dayStamp = stamp
+    const ticks = midnights(Date.now()).map(({ at, label }) => {
+      const tick = document.createElement('span')
+      tick.style.left = `${at * 100}%`
+      const b = document.createElement('b')
+      b.textContent = label
+      tick.append(b)
+      return tick
+    })
+    const mark = document.createElement('span')
+    mark.className = 'now'
+    mark.style.left = '50%'
+    const word = document.createElement('b')
+    word.textContent = 'now'
+    mark.append(word)
+    days.replaceChildren(...ticks, mark)
+  }
 
   function showReadout() {
-    readout.time.textContent = `${new Date(sim).toISOString().slice(0, 19).replace('T', ' ')} UTC`
-    const behind = Math.round((Date.now() - sim) / 60000)
-    readout.rate.textContent = paused
-      ? 'paused'
-      : `${RATES[rate]}× ${Math.abs(behind) < 2 ? 'now' : behind > 0 ? `${fmt(behind)} min behind` : `${fmt(-behind)} min ahead`}`
+    readout.time.textContent = utc(sim, true)
+    const off = sim - Date.now()
+    readout.rate.textContent =
+      locked !== null ? `last known, ${away(off)}` : paused ? `paused, ${away(off)}` : away(off)
+    showScrub(off)
     if (sats.length) readout.count.textContent = `${sats.length} satellites, ${scale} scale`
+    for (const row of rows) {
+      const sat = sats[row.index]
+      const r = position(sat.el, sim)
+      const below = geodetic(r, sim)
+      if (sat.geo) row.value.textContent = ew(below.lon, 1)
+      else {
+        const north = position(sat.el, sim + 60000)[2] > r[2]
+        row.value.textContent = `${fmt(below.alt)} km ${ns(below.lat, 0)} ${north ? '↑' : '↓'}`
+      }
+    }
     if (selected < 0) return
     const sat = sats[selected]
     const r = position(sat.el, sim)
-    const ground = geodetic(r, sim)
-    card.alt.textContent = `${fmt(ground.alt)} km`
-    card.speed.textContent = `${fmt(speed(sat.el, length(r)), 2)} km/s`
-    card.below.textContent = `${ns(ground.lat)}, ${ew(ground.lon)}`
+    const below = geodetic(r, sim)
+    const lit = sunlit(r, sim)
+    card.alt.textContent = fmt(below.alt)
+    card.speed.textContent = fmt(speed(sat.el, length(r)), 2)
+    card.below.textContent = `${ns(below.lat)} ${ew(below.lon)}`
+    card.sun.textContent = `${lit.shadow ? 'in shadow' : 'sunlit'}, ground in ${lit.day ? 'day' : 'night'}`
     card.orbit.textContent = sat.geo
-      ? `geostationary, ${ew(ground.lon)}`
-      : `polar, ${fmt(sat.omm.INCLINATION, 1)}°, ${fmt(period(sat.el))} min`
+      ? `geostationary over ${ew(below.lon, 1)}`
+      : `polar, ${fmt(sat.omm.INCLINATION, 1)}°, ${fmt(period(sat.el))} min a lap`
   }
 
+  // The picture, captioned with when it was taken: a full disk's slot, or
+  // for a daily composite the satellite's daylight pass over the area shown.
   function showPicture(sat, back = 0) {
-    const ground = geodetic(position(sat.el, sim), sim)
-    const { src, href, caption, steps } = picture(sat, ground, Date.now(), back)
+    const below = geodetic(position(sat.el, sim), sim)
+    const { src, href, caption, steps, taken, day, over } = picture(sat, below, Date.now(), back)
     card.link.href = href
-    card.caption.textContent = caption
+    const when = taken ?? (day ? passOver(sat.el, over.lat, over.lon, day) : null)
+    card.caption.textContent = when
+      ? `${utc(when)}, ${taken ? '' : 'pass over this area, '}${caption}`
+      : day
+        ? `${day}, ${caption}`
+        : caption
     card.img.hidden = !src
+    card.root.classList.toggle('bare', !src)
     card.img.alt = src ? `${sat.name} imagery` : ''
     card.img.dataset.back = steps ? String(back) : ''
     if (src) card.img.src = src
@@ -430,7 +940,10 @@ export function mount() {
     const sat = sats[selected]
     const back = Number(card.img.dataset.back) + 1
     if (sat && card.img.dataset.back && back <= BACK) showPicture(sat, back)
-    else card.img.hidden = true
+    else {
+      card.img.hidden = true
+      card.root.classList.add('bare')
+    }
   })
 
   // spherical interpolation, the short way round
@@ -449,26 +962,41 @@ export function mount() {
   function select(index, center) {
     selected = index
     picker.value = index < 0 ? '' : String(index)
+    for (const row of rows) {
+      if (row.index === index) row.button.setAttribute('aria-current', 'true')
+      else row.button.removeAttribute('aria-current')
+    }
     const shown = !card.root.hidden
     card.root.hidden = index < 0
     if (shown !== index >= 0) resize()
     if (index < 0) return
     const sat = sats[index]
+    card.root.dataset.orbit = sat.geo ? 'geo' : 'leo'
     card.name.textContent = sat.name
     card.by.textContent = sat.by
     card.wiki.href = wikiUrl(sat)
-    card.wiki.textContent = `${decodeURIComponent(sat.wiki).replaceAll('_', ' ')} on Wikipedia`
+    // the name is the link, its article named on hover
+    card.wiki.title = `${decodeURIComponent(sat.wiki).replaceAll('_', ' ')} on Wikipedia`
     showPicture(sat)
     showReadout()
     if (center) {
       const r = position(sat.el, sim)
       const lat = Math.asin(r[2] / length(r)) / RAD
-      // from a little above, so the belt shows as a ring
-      swing = {
-        from: orientation,
-        to: facing(Math.atan2(r[1], r[0]), lat + 15),
-        start: performance.now()
-      }
+      startSwing(facing(Math.atan2(r[1], r[0]), lat + 15))
+    }
+  }
+
+  // Turn to face to, and zoom to zoomTo, over ms. Both ends are kept in the
+  // Earth's frame, so a swing lands true while time runs fast.
+  function startSwing(to, zoomTo = zoom, ms = SWING) {
+    const g = gmst(sim)
+    swing = {
+      from: keep(orientation, g),
+      to: keep(to, g),
+      z0: zoom,
+      z1: zoomBy(1, zoomTo),
+      ms,
+      start: performance.now()
     }
   }
 
@@ -479,8 +1007,10 @@ export function mount() {
   }
 
   function setRate(index) {
+    if (locked !== null) return
     rate = Math.min(RATES.length - 1, Math.max(0, index))
-    rates.value = String(rate)
+    for (const b of speeds.children)
+      b.setAttribute('aria-pressed', String(Number(b.dataset.rate) === rate))
     showReadout()
   }
 
@@ -493,6 +1023,7 @@ export function mount() {
   }
 
   const rgb = (s) => s.split(/\s+/).map(Number)
+  const norm = (s) => rgb(s).map((c) => c / 255)
 
   function setTheme(theme, save) {
     document.documentElement.dataset.theme = theme
@@ -503,17 +1034,31 @@ export function mount() {
     ink = {
       fg: token('--fg'),
       dim: token('--dim'),
-      ocean: rgb(token('--ocean')),
-      oceanNight: rgb(token('--ocean-night')),
-      land: rgb(token('--land')),
-      landNight: rgb(token('--land-night')),
-      air: token('--air'),
+      faint: token('--faint'),
+      bgCss: token('--bg'),
+      fg3: norm(token('--gl-ink')),
+      bg: norm(token('--gl-bg')),
+      geoRgb: norm(token('--geo-rgb')),
+      leoRgb: norm(token('--leo-rgb')),
       coast: token('--coast'),
       grid: token('--grid'),
+      belt: token('--belt'),
+      tick: token('--tick'),
+      limb: token('--limb'),
       geo: token('--geo'),
       leo: token('--leo'),
       track: token('--track'),
-      mono: token('--mono')
+      mono: token('--mono'),
+      palette: {
+        OceanShallow: norm(token('--ocean-shallow')),
+        OceanDeep: norm(token('--ocean-deep')),
+        LandLow: norm(token('--land-low')),
+        LandHigh: norm(token('--land-high')),
+        Night: norm(token('--night')),
+        nightMix: Number(token('--night-mix')),
+        monoDay: Number(token('--mono-day')),
+        monoNight: Number(token('--mono-night'))
+      }
     }
     if (!save) return
     try {
@@ -521,13 +1066,38 @@ export function mount() {
     } catch {}
   }
 
+  function readStyle() {
+    try {
+      return localStorage.getItem(STYLE_KEY)
+    } catch {
+      return null
+    }
+  }
+
+  function setStyle(style, save) {
+    document.documentElement.dataset.style = style
+    LOOK = style === 'mono' ? 1 : 0
+    for (const b of styles.children)
+      b.setAttribute('aria-pressed', String(b.dataset.stylePick === style))
+    if (document.documentElement.dataset.theme) setTheme(document.documentElement.dataset.theme)
+    if (!save) return
+    try {
+      localStorage.setItem(STYLE_KEY, style)
+    } catch {}
+  }
+
   const actions = {
+    style() {
+      setStyle(LOOK ? 'color' : 'mono', true)
+    },
     pause() {
+      if (locked !== null) return
       paused = !paused
       buttons.pause.setAttribute('aria-pressed', String(paused))
       showReadout()
     },
     now() {
+      if (locked !== null) return
       sim = Date.now()
       showReadout()
     },
@@ -544,6 +1114,33 @@ export function mount() {
     },
     deselect() {
       select(-1)
+    },
+    home() {
+      spin = STILL
+      const s = sun(sim)
+      startSwing(facing(Math.atan2(s[1], s[0]) - 45 * RAD, 20), HOME_ZOOM, 1100)
+    },
+    // the browser's idea of where the viewer is, swung to and marked
+    locate() {
+      if (!navigator.geolocation) {
+        readout.note.textContent = 'location not available in this browser'
+        return
+      }
+      readout.note.textContent = 'finding your location'
+      navigator.geolocation.getCurrentPosition(
+        ({ coords }) => {
+          here = { lat: coords.latitude, lon: coords.longitude }
+          readout.note.textContent = ''
+          spin = STILL
+          const p = surface(here.lat, here.lon, sim)
+          startSwing(facing(Math.atan2(p[1], p[0]), here.lat), Math.max(zoom, 40), 1400)
+        },
+        (err) => {
+          readout.note.textContent =
+            err.code === err.PERMISSION_DENIED ? 'location not shared' : 'location not found'
+        },
+        { maximumAge: 600000, timeout: 15000 }
+      )
     }
   }
 
@@ -553,9 +1150,47 @@ export function mount() {
     select(picker.value === '' ? -1 : Number(picker.value), true)
     picker.blur()
   })
-  rates.addEventListener('change', () => {
-    setRate(Number(rates.value))
-    rates.blur()
+  for (const [index, label] of SPEEDS.entries()) {
+    const b = document.createElement('button')
+    b.dataset.rate = String(index)
+    b.textContent = label
+    b.title = `${RATES[index]}× real time`
+    speeds.append(b)
+  }
+  speeds.addEventListener('click', (event) => {
+    const b = event.target.closest('button[data-rate]')
+    if (b) setRate(Number(b.dataset.rate))
+  })
+  styles.addEventListener('click', (event) => {
+    const b = event.target.closest('button[data-style-pick]')
+    if (b) setStyle(b.dataset.stylePick, true)
+  })
+  scrub.addEventListener('pointerdown', () => {
+    scrubbing = true
+  })
+  scrub.addEventListener('input', () => {
+    sim = Date.now() + Number(scrub.value) * 1000
+    showReadout()
+  })
+  scrub.addEventListener('change', () => {
+    scrubbing = false
+  })
+  on('pointerup', () => {
+    scrubbing = false
+  })
+  // a row under the pointer lights its satellite on the globe
+  roster.addEventListener('pointerover', (event) => {
+    const button = event.target.closest('button[data-index]')
+    hovered = button ? Number(button.dataset.index) : -1
+  })
+  roster.addEventListener('pointerleave', () => {
+    hovered = -1
+  })
+  roster.addEventListener('click', (event) => {
+    const button = event.target.closest('button[data-index]')
+    if (!button) return
+    const index = Number(button.dataset.index)
+    select(index === selected ? -1 : index, true)
   })
 
   on('keydown', (event) => {
@@ -565,7 +1200,7 @@ export function mount() {
     if (KEYS[code]) {
       held.add(code)
       swing = null
-    } else if (ZOOM_KEYS[code]) zoom = zoomBy(zoom, ZOOM_KEYS[code])
+    } else if (ZOOM_KEYS[code]) zoomAt(ZOOM_KEYS[code], width / 2, height / 2)
     else if (PICK_KEYS[code]) step(selected, PICK_KEYS[code])
     else if (RATE_KEYS[code]) setRate(rate + RATE_KEYS[code])
     else if (ACTIONS[code]) {
@@ -577,17 +1212,24 @@ export function mount() {
   on('keyup', (event) => held.delete(event.code))
   on('blur', () => held.clear())
 
-  function nearest(x, y) {
+  // the closest satellite within reach, else one whose label is under the
+  // point
+  function nearest(x, y, reach = REACH) {
     let best = -1
-    let gap = REACH
+    let closest = reach
     for (const m of marks) {
+      if (m.hidden && m.index !== selected) continue
       const d = Math.hypot(m.x - x, m.y - y)
-      if (d < gap && (!m.hidden || m.index === selected)) {
-        gap = d
+      if (d < closest) {
+        closest = d
         best = m.index
       }
     }
-    return best
+    if (best >= 0) return best
+    const named = marks.find(
+      ({ label: l }) => l && x >= l[0] && x <= l[2] && y >= l[1] && y <= l[3]
+    )
+    return named ? named.index : -1
   }
 
   canvas.addEventListener('pointerdown', (event) => {
@@ -605,9 +1247,11 @@ export function mount() {
   })
 
   canvas.addEventListener('pointermove', (event) => {
+    if (event.pointerType === 'mouse') cursor = { x: event.clientX, y: event.clientY }
     const last = pointers.get(event.pointerId)
     if (!last) {
-      canvas.classList.toggle('over', nearest(event.clientX, event.clientY) >= 0)
+      hovered = nearest(event.clientX, event.clientY)
+      canvas.classList.toggle('over', hovered >= 0)
       return
     }
     const dx = event.clientX - last.x
@@ -616,16 +1260,20 @@ export function mount() {
     if (pointers.size === 2) {
       const [a, b] = [...pointers.values()]
       const next = Math.hypot(a.x - b.x, a.y - b.y)
-      if (span) zoom = zoomBy(zoom, next / span)
+      if (span) zoomAt(next / span, (a.x + b.x) / 2, (a.y + b.y) / 2)
       span = next
       return
     }
     if (!press) return
     if (Math.hypot(event.clientX - press.x, event.clientY - press.y) > CLICK) press.moved = true
-    orientation = turn(orientation, dy * DRAG, -dx * DRAG)
+    orientation = turn(orientation, dy * grip(), -dx * grip())
     const now = performance.now()
     press.trail.push({ x: event.clientX, y: event.clientY, at: now })
     while (press.trail.length && now - press.trail[0].at > FLICK_TAIL) press.trail.shift()
+  })
+  canvas.addEventListener('pointerleave', () => {
+    cursor = null
+    hovered = -1
   })
 
   function release(event) {
@@ -633,7 +1281,11 @@ export function mount() {
     span = 0
     if (!press) return
     if (!press.moved) {
-      const index = nearest(event.clientX, event.clientY)
+      const index = nearest(
+        event.clientX,
+        event.clientY,
+        event.pointerType === 'touch' ? REACH_TOUCH : REACH
+      )
       if (index >= 0 || selected >= 0) select(index, false)
     } else if (press.trail.length > 1) {
       const first = press.trail[0]
@@ -641,7 +1293,9 @@ export function mount() {
       const ms = last.at - first.at
       const dx = last.x - first.x
       const dy = last.y - first.y
-      if (ms > 0 && Math.hypot(dx, dy) / ms > FLICK) spin = fling(dx, dy, ms)
+      if (ms > 0 && Math.hypot(dx, dy) / ms > FLICK) {
+        spin = fling(dx, dy, ms).map((c) => (c * grip()) / DRAG)
+      }
     }
     press = null
   }
@@ -652,37 +1306,103 @@ export function mount() {
     'wheel',
     (event) => {
       event.preventDefault()
-      zoom = zoomBy(zoom, Math.exp(-event.deltaY * (event.ctrlKey ? PINCH : WHEEL)))
+      zoomAt(
+        Math.exp(-event.deltaY * (event.ctrlKey ? PINCH : WHEEL)),
+        event.clientX,
+        event.clientY
+      )
     },
     { passive: false }
   )
 
   let lastFrame = performance.now()
+  let turned = gmst(sim)
   let lastReadout = 0
+  let lastSave = 0
+
+  // the view is kept turned back to the Earth's frame, so a reload faces the
+  // same ground whatever the time
+  function save() {
+    try {
+      localStorage.setItem(
+        VIEW_KEY,
+        JSON.stringify({
+          q: keep(orientation, gmst(sim)),
+          zoom,
+          scale,
+          rate,
+          // a locked clock is the data's, not the viewer's, so it is not kept
+          paused: locked === null && paused,
+          offset: locked !== null ? 0 : sim - Date.now(),
+          at: paused && locked === null ? sim : null,
+          pick: selected >= 0 ? sats[selected].name : null
+        })
+      )
+    } catch {}
+  }
+
+  function restore() {
+    let v = null
+    try {
+      v = JSON.parse(localStorage.getItem(VIEW_KEY))
+    } catch {}
+    if (!Array.isArray(v?.q) || v.q.length !== 4) return null
+    const wall = Date.now()
+    sim = within(v.at ?? wall + (Number(v.offset) || 0), wall)
+    turned = gmst(sim)
+    orientation = unkeep(v.q, turned)
+    zoom = zoomBy(1, Number(v.zoom) || HOME_ZOOM)
+    scale = v.scale === 'true' ? 'true' : 'compressed'
+    buttons.scale.setAttribute('aria-pressed', String(scale === 'true'))
+    paused = Boolean(v.paused)
+    buttons.pause.setAttribute('aria-pressed', String(paused))
+    rate = Number.isInteger(v.rate) ? v.rate : 0
+    return v.pick
+  }
 
   function frame(now) {
     const ms = Math.min(100, now - lastFrame)
     lastFrame = now
     if (!paused) sim += ms * RATES[rate]
-    const turns = [...held].reduce(
-      (sum, code) => sum.map((c, i) => c + KEYS[code][i] * STEER * (ms / FRAME)),
-      [0, 0, 0]
+    // the time bar holds a week either side of now, and time stops at its end
+    const wall = Date.now()
+    if (locked !== null) sim = locked
+    else {
+      if (sim > wall + WEEK && !paused) actions.pause()
+      sim = within(sim, wall)
+    }
+    // the camera turns with the Earth, so the globe holds still and only the
+    // satellites and the Sun move, at any speed and across any jump in time
+    const g = gmst(sim)
+    const dg = ((((g - turned + Math.PI) % (2 * Math.PI)) + 2 * Math.PI) % (2 * Math.PI)) - Math.PI
+    turned = g
+    if (dg) orientation = multiply(orientation, spinBy(dg))
+    // held keys move the view over the ground, north and east
+    const k = STEER * (grip() / DRAG) * (ms / FRAME)
+    const [north, east] = [...held].reduce(
+      (sum, code) => sum.map((c, i) => c + KEYS[code][i] * k),
+      [0, 0]
     )
-    if (turns.some(Boolean)) orientation = turn(orientation, ...turns)
+    if (north || east) orientation = steer(orientation, g, north, east)
     if (spin !== STILL) {
       orientation = turn(orientation, ...spin.map((c) => c * (ms / FRAME)))
       spin = slow(spin, ms)
     }
     if (swing) {
-      const t = Math.min(1, (now - swing.start) / SWING)
+      const t = Math.min(1, (now - swing.start) / swing.ms)
       const eased = 1 - (1 - t) ** 3
-      orientation = slerp(swing.from, swing.to, eased)
+      orientation = unkeep(slerp(swing.from, swing.to, eased), gmst(sim))
+      zoom = swing.z0 * (swing.z1 / swing.z0) ** eased
       if (t === 1) swing = null
     }
     draw()
     if (now - lastReadout > READOUT_EVERY) {
       lastReadout = now
       showReadout()
+    }
+    if (now - lastSave > 1000) {
+      lastSave = now
+      save()
     }
     raf = requestAnimationFrame(frame)
   }
@@ -695,48 +1415,101 @@ export function mount() {
     }
   }
 
+  // the list down the left, geostationary west to east, then the polar
+  // imagers by name
+  function buildRoster() {
+    const lists = { geo: $('roster-geo'), leo: $('roster-leo') }
+    for (const list of Object.values(lists)) list.replaceChildren()
+    const lon = (sat) => geodetic(position(sat.el, sim), sim).lon
+    const order = sats
+      .map((sat, index) => ({ sat, index }))
+      .sort((a, b) =>
+        a.sat.geo && b.sat.geo ? lon(a.sat) - lon(b.sat) : a.sat.name.localeCompare(b.sat.name)
+      )
+    rows = order.map(({ sat, index }) => {
+      const li = document.createElement('li')
+      const button = document.createElement('button')
+      button.dataset.index = String(index)
+      button.className = sat.geo ? 'geo' : 'leo'
+      const name = document.createElement('span')
+      name.className = 'name'
+      name.textContent = sat.name
+      const value = document.createElement('span')
+      value.className = 'value'
+      button.append(name, value)
+      li.append(button)
+      lists[sat.geo ? 'geo' : 'leo'].append(li)
+      return { index, button, value }
+    })
+    $('roster-geo-count').textContent = String(lists.geo.children.length)
+    $('roster-leo-count').textContent = String(lists.leo.children.length)
+  }
+
+  // Elements from this browser's copy while it is fresh, else the copy the
+  // site publishes every two hours, else CelesTrak itself, else whatever older
+  // copy there is. Visitors reading the published copy keep the load on
+  // CelesTrak to one fetch every two hours.
+  // Hold the clock at the data's own time, the satellites where they were
+  // then, with the time controls off and the time bar saying why.
+  function lock(at) {
+    locked = at
+    sim = at
+    paused = true
+    buttons.pause.setAttribute('aria-pressed', 'true')
+    timebar.classList.add('locked')
+    for (const el of [scrub, buttons.pause, buttons.now, ...speeds.children]) el.disabled = true
+    staleNote.textContent = `elements not loading, last known positions ${utc(at)}`
+    staleNote.hidden = false
+    showReadout()
+  }
+
   async function load() {
+    const now = Date.now()
     const cached = readCache()
-    let groups = cached && Date.now() - cached.at < FRESH ? cached.groups : null
-    if (!groups) {
+    let snap = fresh(cached, now) ? cached : null
+    let published = null
+    if (!snap) {
+      published = await fetch('./gp.json')
+        .then((res) => (res.ok ? res.json() : null))
+        .catch(() => null)
+      if (fresh(published, now, STALE)) snap = published
+    }
+    if (!snap) {
       try {
-        groups = await Promise.all(
-          GROUPS.map(async (group) => {
-            const res = await fetch(groupUrl(group))
-            if (!res.ok) throw new Error(`${res.status}`)
-            return res.json()
-          })
-        )
-        try {
-          localStorage.setItem(CACHE_KEY, JSON.stringify({ at: Date.now(), groups }))
-        } catch {}
+        snap = await snapshot((url) => fetch(url), now)
       } catch {
-        groups = cached?.groups
-        readout.note.textContent = groups
-          ? 'CelesTrak unreachable, using older elements'
-          : 'CelesTrak unreachable, no elements to show'
+        snap = [cached, published].filter((s) => s?.groups).sort((a, b) => b.at - a.at)[0] ?? null
+        if (!snap) readout.note.textContent = 'elements not loading, nothing to show'
       }
     }
-    if (!groups) return
-    sats = pick(groups).map((sat) => {
+    if (!snap) return
+    if (now - snap.at > TRUSTED) lock(snap.at)
+    if (snap !== cached) {
+      try {
+        localStorage.setItem(CACHE_KEY, JSON.stringify(snap))
+      } catch {}
+    }
+    sats = pick(snap.groups).map((sat) => {
       const el = elements(sat.omm)
       return { ...sat, el, geo: stationary(el) }
     })
     for (const [index, sat] of sats.entries()) picker.add(new Option(sat.name, String(index)))
+    buildRoster()
     showReadout()
+    const index = sats.findIndex((sat) => sat.name === kept)
+    if (index >= 0) select(index, false)
   }
 
-  for (const [index, r] of RATES.entries()) {
-    rates.add(new Option(r === 1 ? 'real time' : `${r}× speed`, String(index)))
-  }
+  setStyle(readStyle() === 'mono' ? 'mono' : 'color')
   setTheme(readTheme() ?? (matchMedia('(prefers-color-scheme: light)').matches ? 'light' : 'dark'))
   on('resize', resize)
   resize()
-  setRate(0)
+  const kept = restore()
+  setRate(rate)
   load()
+  on('pagehide', save)
   let raf = requestAnimationFrame(frame)
 
-  // served by the site, absent on the dev server
   const wink = import('/router/controls.js')
     .then(({ pageControls, winkControls }) => {
       const controls = pageControls(document)
@@ -746,11 +1519,15 @@ export function mount() {
     .catch(() => () => {})
 
   return (event) => {
+    save()
     teardown.abort()
     cancelAnimationFrame(raf)
     canvas.style.visibility = 'hidden'
-    readout.time.parentElement.style.visibility = 'hidden'
+    globeCanvas.style.visibility = 'hidden'
+    gl?.destroy()
+    for (const id of ['timebar', 'readout']) $(id).style.visibility = 'hidden'
     delete document.documentElement.dataset.theme
+    delete document.documentElement.dataset.style
     event?.waitUntil?.(wink.then((run) => run(false)))
   }
 }
