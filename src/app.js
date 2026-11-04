@@ -87,6 +87,10 @@ const PINCH = 0.01
 const GLOBE_RES = 360
 // ms between card and readout updates, slow enough to read
 const READOUT_EVERY = 250
+// ms between frames while nothing moves the view and time runs at 1× or
+// stands still: a satellite then crosses a pixel in a second or more, and
+// the globe is a full-screen shader
+const IDLE_EVERY = 100
 // ms to turn the view onto a picked satellite
 const SWING = 700
 // the most slots to step back through when the newest picture is missing
@@ -178,6 +182,11 @@ export function mount() {
   const pointers = new Map()
   let span = 0
   let press = null
+  // a change the next frame must show however idle the page is
+  let dirty = true
+  const poke = () => {
+    dirty = true
+  }
 
   const globe = document.createElement('canvas')
   const globeCtx = globe.getContext('2d')
@@ -251,6 +260,7 @@ export function mount() {
         if (level <= terrainLevel) return
         terrainLevel = level
         gl.terrain(t)
+        poke()
       })
       .catch(() => {})
   }
@@ -261,6 +271,7 @@ export function mount() {
   let canvasTop = 0
 
   function resize() {
+    poke()
     dpr = Math.min(2, window.devicePixelRatio || 1)
     // on a phone the globe sits between the header, or the count under it,
     // and the card, or the time bar while nothing is picked
@@ -978,6 +989,7 @@ export function mount() {
   })
 
   function select(index, center) {
+    poke()
     selected = index
     for (const row of rows) {
       if (row.index === index) row.button.setAttribute('aria-current', 'true')
@@ -1057,6 +1069,7 @@ export function mount() {
   const norm = (s) => rgb(s).map((c) => c / 255)
 
   function setTheme(theme, save) {
+    poke()
     document.documentElement.dataset.theme = theme
     buttons.light.setAttribute('aria-pressed', String(theme === 'light'))
     const style = getComputedStyle(document.documentElement)
@@ -1095,6 +1108,7 @@ export function mount() {
   }
 
   function setStyle(style, save) {
+    poke()
     document.documentElement.dataset.style = style
     LOOK = style === 'mono' ? 1 : 0
     for (const b of styles.children)
@@ -1226,6 +1240,17 @@ export function mount() {
     } else return
     event.preventDefault()
   })
+  // any input may change what is drawn, so the next frame draws
+  for (const type of [
+    'keydown',
+    'keyup',
+    'pointerdown',
+    'pointermove',
+    'pointerup',
+    'wheel',
+    'click'
+  ])
+    on(type, poke)
   on('keyup', (event) => held.delete(event.code))
   on('blur', () => held.clear())
 
@@ -1350,6 +1375,8 @@ export function mount() {
   let turned = gmst(sim)
   let lastReadout = 0
   let lastSave = 0
+  let lastDraw = 0
+  let wasBusy = false
 
   // the view is kept turned back to the Earth's frame, so a reload faces the
   // same ground whatever the time
@@ -1421,7 +1448,17 @@ export function mount() {
       zoom = swing.z0 * (swing.z1 / swing.z0) ** eased
       if (t === 1) swing = null
     }
-    draw()
+    const busy =
+      Boolean(press || pointers.size || held.size || swing || scrubbing) ||
+      spin !== STILL ||
+      (!paused && rate > 0 && locked === null)
+    // one more frame after the motion stops, so it settles where it ends
+    if (busy || wasBusy || dirty || now - lastDraw >= IDLE_EVERY) {
+      draw()
+      lastDraw = now
+      dirty = false
+    }
+    wasBusy = busy
     if (now - lastReadout > READOUT_EVERY) {
       lastReadout = now
       showReadout()
@@ -1509,6 +1546,7 @@ export function mount() {
     })
     buildRoster()
     showReadout()
+    poke()
     const index = sats.findIndex((sat) => sat.name === kept)
     if (index >= 0) select(index, false)
   }
