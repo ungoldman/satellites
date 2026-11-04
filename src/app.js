@@ -156,9 +156,9 @@ export function mount() {
   let paused = false
   let scale = 'compressed'
   let zoom = HOME_ZOOM
-  // opens on the morning side, the terminator in view
-  const toSun = sun(sim)
-  let orientation = facing(Math.atan2(toSun[1], toSun[0]) - 45 * RAD, 20)
+  // the prime meridian, 20° north
+  const homeView = () => facing(gmst(sim), 20)
+  let orientation = homeView()
   let spin = STILL
   let swing = null
   let width = 0
@@ -1117,8 +1117,7 @@ export function mount() {
     },
     home() {
       spin = STILL
-      const s = sun(sim)
-      startSwing(facing(Math.atan2(s[1], s[0]) - 45 * RAD, 20), HOME_ZOOM, 1100)
+      startSwing(homeView(), HOME_ZOOM, 1100)
     },
     // the browser's idea of where the viewer is, swung to and marked
     locate() {
