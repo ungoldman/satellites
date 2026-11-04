@@ -125,6 +125,22 @@ test('heights arrive with every mip level', () => {
   assert.deepEqual(uniform(calls, 'uHasHeight'), ['uniform1i', 'uHasHeight', 1])
 })
 
+test('new heights free the texture they replace', () => {
+  const { gl, calls } = fakeGl()
+  const globe = createGlobe(canvas(gl), MASK, 4, 2)
+  const textures = () => of(calls, 'bindTexture').map(([, , tex]) => tex)
+  const placeholder = textures().at(-1)
+  globe.terrain({ size: 4, heights: new Float32Array(16) })
+  const first = textures().at(-1)
+  globe.terrain({ size: 4, heights: new Float32Array(16) })
+  // the stand-in's textures look alike, so each is checked by identity
+  const freed = of(calls, 'deleteTexture').map(([, tex]) => tex)
+  assert.equal(freed.length, 2)
+  assert.notEqual(first, placeholder)
+  assert.equal(freed[0], placeholder)
+  assert.equal(freed[1], first)
+})
+
 test('a frame sets the view, the light, and the look, then draws', () => {
   const { gl, calls } = fakeGl()
   const globe = createGlobe(canvas(gl, 200), MASK, 4, 2)

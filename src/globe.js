@@ -255,15 +255,16 @@ export function createGlobe(canvas, mask, maskW, maskH) {
   texture(gl, 1, gl.R8, gl.RED, gl.UNSIGNED_BYTE, maskW, maskH, bytes)
   gl.generateMipmap(gl.TEXTURE_2D)
   gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR_MIPMAP_LINEAR)
-  // a placeholder until the heights arrive
-  texture(gl, 0, gl.R16F, gl.RED, gl.FLOAT, 1, 1, new Float32Array([0]))
+  // a placeholder until the heights arrive, each set of them replacing the last
+  let heightTex = texture(gl, 0, gl.R16F, gl.RED, gl.FLOAT, 1, 1, new Float32Array([0]))
   gl.uniform1i(loc.uHeight, 0)
   gl.uniform1i(loc.uMask, 1)
   gl.uniform1i(loc.uHasHeight, 0)
 
   return {
     terrain({ size, heights }) {
-      texture(gl, 0, gl.R16F, gl.RED, gl.FLOAT, size, size, heights)
+      gl.deleteTexture(heightTex)
+      heightTex = texture(gl, 0, gl.R16F, gl.RED, gl.FLOAT, size, size, heights)
       for (const [k, level] of levels(size, heights).entries()) {
         if (!k) continue
         const n = size >> k
