@@ -20,6 +20,24 @@ Node 22.12+. Do not alter version. Push to `main` deploys https://ungoldman.com/
 - 100% coverage on `src/orbit.js`, `src/view.js`, `src/fleet.js`, `src/time.js`, `src/terrain.js`, `src/globe.js`, and `src/server.js`. `src/terrain.js` takes its network and canvas as tools, and `test/globe.test.js` drives `src/globe.js` with a stand-in WebGL context, so both run in Node. `src/app.js` is checked in browser.
 - `satellite.js` is a devDependency only. Tests hold `src/orbit.js` to within 60 km of its SGP4 over three days, against the elements in `test/fixtures/gp.json`.
 
+## Navigation
+
+The camera is a turntable with north up. Every input that moves the view goes through `steer` in `src/view.js`, which rebuilds the view from the center's latitude and longitude with `facing`. The keys are the model: `W` `A` `S` `D` move the center north, west, south, and east at a steady rate of longitude, and the center stops at 89°.
+
+- Drag is grab-to-pan. `press.grab` holds the ground under the pointer at `pointerdown`, and `pin` in `src/app.js` steers until that ground sits under the pointer again. A change in longitude moves every point by the same amount, but a change in latitude is exact only on the center's meridian, so `pin` runs up to four rounds. Off the globe the drag falls back to `grip()` degrees per pixel.
+- Wheel, pinch, `=`, and `-` zoom through `zoomAt`, which pins the ground under the pointer the same way.
+- A fling carries on as degrees north and east per frame through `steer`.
+- `R` swings to `homeView`, 0° and 20°N. `G` and picking a satellite swing to a `facing` view too, so every swing ends north up.
+
+Two setups came before this one and were dropped on 2026-11-04:
+
+- Trackball (arcball), the original. Drag turned the view about the screen axes with `turn`, and zoom at the pointer used `between`. Both rolled the view, and the next key press snapped the roll out, so the view jumped.
+- Turntable at a fixed rate per pixel. North stayed up, but near the poles the ground slid slower than the pointer.
+
+Near a pole `pin` can't hold the grabbed ground, because the 89° stop blocks the move it needs. Over a drag of 40 pointer events the ground stays within 0.01° of the pointer up to 75° and slips by several degrees at 85°.
+
+Keep free rotations of `orientation` out of input handling. The one `multiply` on it is the Earth's turn in `frame`, which spins about the axis and leaves north up.
+
 ## Layout
 
 - `src/index.html`: markup, styles, theme and style tokens (colour and mono, each light and dark), the satellite list, the card, the time bar, the ? panel with explainer and credits.
