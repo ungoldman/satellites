@@ -682,15 +682,26 @@ export function mount() {
     return ground(orientation, gmst(sim), (x - width / 2) / r, (y - height / 2) / r)
   }
 
-  // zoom by factor, steering so the ground under x, y stays there with north
-  // up, as the keys do
+  // Steer, north up as the keys do, until place sits under x, y. A change in
+  // longitude is exact, one in latitude only on the center's meridian, hence
+  // the few rounds. False when x, y is off the globe.
+  function pin(place, x, y) {
+    for (let i = 0; i < 4; i++) {
+      const now = placeAt(x, y)
+      if (!now) return false
+      const north = place.lat - now.lat
+      const east = ((((place.lon - now.lon + 180) % 360) + 360) % 360) - 180
+      if (Math.abs(north) + Math.abs(east) < 1e-4) break
+      orientation = steer(orientation, gmst(sim), north, east)
+    }
+    return true
+  }
+
+  // zoom by factor, the ground under x, y kept there
   function zoomAt(factor, x, y) {
     const before = placeAt(x, y)
     zoom = zoomBy(zoom, factor)
-    const after = placeAt(x, y)
-    if (!before || !after) return
-    const east = ((((before.lon - after.lon + 180) % 360) + 360) % 360) - 180
-    orientation = steer(orientation, gmst(sim), before.lat - after.lat, east)
+    if (before) pin(before, x, y)
   }
 
   // the viewer's place: a ring and a dot, while it faces us
@@ -1240,7 +1251,13 @@ export function mount() {
       span = Math.hypot(a.x - b.x, a.y - b.y)
       press = null
     } else {
-      press = { x: event.clientX, y: event.clientY, moved: false, trail: [] }
+      press = {
+        x: event.clientX,
+        y: event.clientY,
+        grab: placeAt(event.clientX, event.clientY),
+        moved: false,
+        trail: []
+      }
     }
   })
 
@@ -1264,7 +1281,12 @@ export function mount() {
     }
     if (!press) return
     if (Math.hypot(event.clientX - press.x, event.clientY - press.y) > CLICK) press.moved = true
-    orientation = steer(orientation, gmst(sim), dy * grip(), -dx * grip())
+    // the grabbed ground follows the pointer, and off the globe the drag
+    // turns at the set rate instead
+    if (!press.grab || !pin(press.grab, event.clientX, event.clientY)) {
+      press.grab = null
+      orientation = steer(orientation, gmst(sim), dy * grip(), -dx * grip())
+    }
     const now = performance.now()
     press.trail.push({ x: event.clientX, y: event.clientY, at: now })
     while (press.trail.length && now - press.trail[0].at > FLICK_TAIL) press.trail.shift()
