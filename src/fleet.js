@@ -9,6 +9,28 @@ export const groupUrl = (group) => `${SOURCE}?GROUP=${group}&FORMAT=json`
 // CelesTrak updates elements about every two hours and asks clients to
 // fetch no more often than that
 export const FRESH = 2 * 3600000
+// a copy published with the page older than this is passed over for CelesTrak
+export const STALE = 24 * 3600000
+
+// Elements older than this are not trusted for now: the tests hold the
+// orbits to SGP4 for three days, and past that a polar imager drifts far
+// along its track. The page locks its clock to the data's own time instead.
+export const TRUSTED = 3 * 86400000
+
+// whether a snapshot of the groups, { at, groups }, is younger than age
+export const fresh = (snap, now, age = FRESH) => Boolean(snap?.groups) && now - snap.at < age
+
+// every group, fetched with get, as one snapshot taken at now
+export async function snapshot(get, now) {
+  const groups = await Promise.all(
+    GROUPS.map(async (group) => {
+      const res = await get(groupUrl(group))
+      if (!res.ok) throw new Error(`CelesTrak ${res.status}`)
+      return res.json()
+    })
+  )
+  return { at: now, groups }
+}
 
 const SLIDER = 'https://slider.cira.colostate.edu'
 const WORLDVIEW = 'https://worldview.earthdata.nasa.gov/'

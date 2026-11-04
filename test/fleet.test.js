@@ -5,6 +5,7 @@ import {
   box,
   FLEET,
   FRESH,
+  fresh,
   GOES_LAG,
   GROUPS,
   goes,
@@ -15,8 +16,11 @@ import {
   pick,
   picture,
   SLIDER_LAG,
+  STALE,
   slider,
   slot,
+  snapshot,
+  TRUSTED,
   wikiUrl,
   yesterday
 } from '../src/fleet.js'
@@ -172,4 +176,32 @@ test('the rest link out to their agency', () => {
   assert.equal(p.src, null)
   assert.equal(p.href, 'https://landsatlook.usgs.gov/')
   assert.equal(p.caption, 'Imagery on LandsatLook')
+})
+
+test('a snapshot is fresh for two hours by default, or as long as asked', () => {
+  const now = Date.UTC(2026, 10, 4)
+  const snap = { at: now - 3600000, groups: [] }
+  assert.ok(fresh(snap, now))
+  assert.equal(fresh(snap, now + FRESH), false)
+  assert.ok(fresh({ at: now - 20 * 3600000, groups: [] }, now, STALE))
+  assert.equal(fresh({ at: now - 25 * 3600000, groups: [] }, now, STALE), false)
+  assert.equal(fresh(null, now), false)
+  assert.equal(fresh({ at: now }, now), false)
+  // the clock locks only once elements are past what the tests vouch for
+  assert.equal(TRUSTED, 3 * 86400000)
+  assert.ok(STALE < TRUSTED)
+})
+
+test('a snapshot gathers every group, or fails whole', async () => {
+  const asked = []
+  const snap = await snapshot(async (url) => {
+    asked.push(url)
+    return { ok: true, json: async () => [url] }
+  }, 42)
+  assert.deepEqual(asked, GROUPS.map(groupUrl))
+  assert.deepEqual(snap, { at: 42, groups: GROUPS.map((g) => [groupUrl(g)]) })
+  await assert.rejects(
+    snapshot(async () => ({ ok: false, status: 403 }), 42),
+    /CelesTrak 403/
+  )
 })

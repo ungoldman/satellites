@@ -1,7 +1,11 @@
 import assert from 'node:assert/strict'
 import { spawn } from 'node:child_process'
 import { once } from 'node:events'
+import { mkdtemp, rm, writeFile } from 'node:fs/promises'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
 import { test } from 'node:test'
+import { pathToFileURL } from 'node:url'
 import { createSatelliteServer, listen, opener } from '../src/server.js'
 
 async function serve(t, port = 0) {
@@ -10,14 +14,17 @@ async function serve(t, port = 0) {
   return [await listen(server, port), server]
 }
 
-test('it serves the page and its five scripts', async (t) => {
+test('it serves the page and its scripts', async (t) => {
   const [url] = await serve(t)
   for (const [path, type] of [
     ['/', 'text/html'],
     ['/app.js', 'text/javascript'],
     ['/coast.js', 'text/javascript'],
     ['/fleet.js', 'text/javascript'],
+    ['/globe.js', 'text/javascript'],
     ['/orbit.js', 'text/javascript'],
+    ['/terrain.js', 'text/javascript'],
+    ['/time.js', 'text/javascript'],
     ['/view.js', 'text/javascript']
   ]) {
     const res = await fetch(url + path)
@@ -75,4 +82,18 @@ test('npm start prints a URL that serves the page', async (t) => {
   const url = String(line).trim()
   assert.match(url, /^http:\/\/localhost:\d+$/)
   assert.equal((await fetch(url)).status, 200)
+})
+
+test('the elements copy is served when written and missing until then', async (t) => {
+  const root = await mkdtemp(join(tmpdir(), 'satellites-'))
+  t.after(() => rm(root, { recursive: true, force: true }))
+  const server = createSatelliteServer(pathToFileURL(`${root}/`))
+  t.after(() => server.close())
+  const url = await listen(server, 0)
+  assert.equal((await fetch(`${url}/gp.json`)).status, 404)
+  await writeFile(join(root, 'gp.json'), '{"at":1,"groups":[]}')
+  const res = await fetch(`${url}/gp.json`)
+  assert.equal(res.status, 200)
+  assert.ok(res.headers.get('content-type').startsWith('application/json'))
+  assert.deepEqual(await res.json(), { at: 1, groups: [] })
 })

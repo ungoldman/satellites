@@ -4,6 +4,9 @@ on:
   push:
     branches:
       - main
+  # fresh elements from CelesTrak, published with the page, as often as it asks
+  schedule:
+    - cron: '17 */2 * * *'
   workflow_dispatch:
 
 concurrency:
@@ -24,7 +27,11 @@ jobs:
 
     steps:
       - uses: actions/checkout@v7
-      - run: mkdir _site && cp src/index.html src/app.js src/coast.js src/fleet.js src/orbit.js src/view.js src/og.png _site/
+      - run: mkdir _site && cp src/index.html src/app.js src/coast.js src/fleet.js src/globe.js src/orbit.js src/terrain.js src/time.js src/view.js src/og.png _site/
+      # carry the published copy forward, so a failed fetch redeploys the last
+      # good one rather than dropping it
+      - run: curl -fsS https://ungoldman.com/satellites/gp.json -o _site/gp.json || true
+      - run: node src/elements.js _site/gp.json
       - uses: actions/configure-pages@v6
       - uses: actions/upload-pages-artifact@v5
       - id: deployment

@@ -8,10 +8,15 @@ const FILES = {
   '/coast.js': ['coast.js', 'text/javascript; charset=utf-8'],
   '/fleet.js': ['fleet.js', 'text/javascript; charset=utf-8'],
   '/orbit.js': ['orbit.js', 'text/javascript; charset=utf-8'],
-  '/view.js': ['view.js', 'text/javascript; charset=utf-8']
+  '/view.js': ['view.js', 'text/javascript; charset=utf-8'],
+  '/globe.js': ['globe.js', 'text/javascript; charset=utf-8'],
+  '/terrain.js': ['terrain.js', 'text/javascript; charset=utf-8'],
+  '/time.js': ['time.js', 'text/javascript; charset=utf-8'],
+  // written by `npm run elements`, absent until then
+  '/gp.json': ['gp.json', 'application/json']
 }
 
-export function createSatelliteServer() {
+export function createSatelliteServer(root = new URL('./', import.meta.url)) {
   return createServer(async (req, res) => {
     const file = FILES[new URL(req.url, 'http://localhost').pathname]
     if (req.method !== 'GET' || !file) {
@@ -20,7 +25,13 @@ export function createSatelliteServer() {
     }
     const [name, type] = file
     // read per request so an edit shows up on refresh
-    const body = await readFile(new URL(name, import.meta.url))
+    let body
+    try {
+      body = await readFile(new URL(name, root))
+    } catch {
+      res.writeHead(404).end()
+      return
+    }
     res.writeHead(200, { 'content-type': type, 'cache-control': 'no-store' })
     res.end(body)
   })
