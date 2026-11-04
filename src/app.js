@@ -93,8 +93,7 @@ const BACK = 6
 export function mount() {
   const teardown = new AbortController()
   const on = (type, listener) => addEventListener(type, listener, { signal: teardown.signal })
-  // 0 colour, 1 mono
-  let LOOK = 0
+  // #region Page elements
   const $ = (id) => document.getElementById(id)
   const canvas = $('canvas')
   const globeCanvas = $('globe')
@@ -138,6 +137,11 @@ export function mount() {
     wiki: $('card-wiki')
   }
 
+  // #endregion
+
+  // #region State
+  // 0 colour, 1 mono
+  let LOOK = 0
   let sats = []
   let rows = []
   let selected = -1
@@ -172,6 +176,9 @@ export function mount() {
     dirty = true
   }
 
+  // #endregion
+
+  // #region Land, grid, and the globe
   const globe = document.createElement('canvas')
   const globeCtx = globe.getContext('2d')
 
@@ -250,6 +257,9 @@ export function mount() {
   }
   if (gl) terrainAt(PHONE_ZOOM)
 
+  // #endregion
+
+  // #region Layout
   // where the canvases start down the page, so DOM boxes can be drawn against
   // them
   let canvasTop = 0
@@ -282,6 +292,43 @@ export function mount() {
 
   const view = () => zoom * fit(SCALES[scale](GEO_KM) * 1.05)
 
+  // #endregion
+
+  // #region Steering the view
+  // degrees a pixel of drag turns at the current zoom
+  const grip = () => gripFor(pixels(width, height, view()))
+
+  // latitude and longitude under a screen point, or null off the globe
+  const placeAt = (x, y) => {
+    const r = pixels(width, height, view())
+    return ground(orientation, gmst(sim), (x - width / 2) / r, (y - height / 2) / r)
+  }
+
+  // Steer, north up as the keys do, until place sits under x, y. A change in
+  // longitude is exact, one in latitude only on the center's meridian, hence
+  // the few rounds. False when x, y is off the globe.
+  function pin(place, x, y) {
+    for (let i = 0; i < 4; i++) {
+      const now = placeAt(x, y)
+      if (!now) return false
+      const north = place.lat - now.lat
+      const east = centered(place.lon - now.lon, 360)
+      if (Math.abs(north) + Math.abs(east) < 1e-4) break
+      orientation = steer(orientation, gmst(sim), north, east)
+    }
+    return true
+  }
+
+  // zoom by factor, the ground under x, y kept there
+  function zoomAt(factor, x, y) {
+    const before = placeAt(x, y)
+    zoom = zoomBy(zoom, factor)
+    if (before) pin(before, x, y)
+  }
+
+  // #endregion
+
+  // #region Drawing
   // px from the center to the edge of the globe
   const limbOf = (z) => pixels(width, height, z) * LIMB
 
@@ -319,37 +366,6 @@ export function mount() {
     globeCtx.putImageData(image, 0, 0)
     ctx.imageSmoothingEnabled = true
     ctx.drawImage(globe, width / 2 - limb, height / 2 - limb, 2 * limb, 2 * limb)
-  }
-
-  // degrees a pixel of drag turns at the current zoom
-  const grip = () => gripFor(pixels(width, height, view()))
-
-  // latitude and longitude under a screen point, or null off the globe
-  const placeAt = (x, y) => {
-    const r = pixels(width, height, view())
-    return ground(orientation, gmst(sim), (x - width / 2) / r, (y - height / 2) / r)
-  }
-
-  // Steer, north up as the keys do, until place sits under x, y. A change in
-  // longitude is exact, one in latitude only on the center's meridian, hence
-  // the few rounds. False when x, y is off the globe.
-  function pin(place, x, y) {
-    for (let i = 0; i < 4; i++) {
-      const now = placeAt(x, y)
-      if (!now) return false
-      const north = place.lat - now.lat
-      const east = centered(place.lon - now.lon, 360)
-      if (Math.abs(north) + Math.abs(east) < 1e-4) break
-      orientation = steer(orientation, gmst(sim), north, east)
-    }
-    return true
-  }
-
-  // zoom by factor, the ground under x, y kept there
-  function zoomAt(factor, x, y) {
-    const before = placeAt(x, y)
-    zoom = zoomBy(zoom, factor)
-    if (before) pin(before, x, y)
   }
 
   // the card's box against the canvas, for the leader, while it shows
@@ -392,28 +408,37 @@ export function mount() {
       hovered
     }
     marks = markAll(scene)
-    let seen = null
-    if (selected >= 0) {
-      const s = sats[selected]
-      const r = position(s.el, sim)
-      seen = {
-        u: toScreen(
-          orientation,
-          r.map((c) => c / length(r))
-        ),
-        cos: RE / length(r),
-        ink: s.geo ? ink.geoRgb : ink.leoRgb
-      }
+    const lines = drawGlobeLayer(z, g, light)
+    overlay({ ...scene, marks, lines, box: cardBox(), here, cursor: cursorAt() })
+  }
+
+  // the picked satellite's view for the shader: the way to it, how much of
+  // the Earth it sees, and its colour
+  function seenNow() {
+    if (selected < 0) return null
+    const sat = sats[selected]
+    const r = position(sat.el, sim)
+    return {
+      u: toScreen(
+        orientation,
+        r.map((c) => c / length(r))
+      ),
+      cos: RE / length(r),
+      ink: sat.geo ? ink.geoRgb : ink.leoRgb
     }
-    // the shader traces the coast from heights once the globe is large enough
-    // to hold them, the vector coast stands in below that
+  }
+
+  // The globe, by shader or on the canvas, and the lines in the Earth's frame
+  // the overlay draws over it. The shader traces the coast from heights once
+  // the globe is large enough to hold them, the vector coast standing in
+  // below that.
+  function drawGlobeLayer(z, g, light) {
     const rPx = pixels(width, height, z)
     if (gl && !detailAsked && rPx * dpr > DETAIL_PX) {
       detailAsked = true
       terrainAt(TERRAIN_ZOOM)
     }
     const sharp = Math.min(1, Math.max(0, (rPx - 220) / 140))
-    const lines = []
     if (gl) {
       gl.draw({
         width,
@@ -425,24 +450,26 @@ export function mount() {
         light,
         ink: ink.fg3,
         bg: ink.bg,
-        seen,
+        seen: seenNow(),
         look: LOOK,
         coast: sharp,
         step: contourStep(rPx),
         palette: ink.palette
       })
-      if (sharp < 1)
-        lines.push({ lines: coast, style: ink.coast, width: LOOK ? 1 : 0.9, alpha: 1 - sharp })
-    } else {
-      drawGlobe(z, light, g)
-      lines.push(
-        { lines: graticule, style: ink.grid, width: 1 },
-        { lines: coast, style: ink.coast, width: 0.8 }
-      )
+      return sharp < 1
+        ? [{ lines: coast, style: ink.coast, width: LOOK ? 1 : 0.9, alpha: 1 - sharp }]
+        : []
     }
-    overlay({ ...scene, marks, lines, box: cardBox(), here, cursor: cursorAt() })
+    drawGlobe(z, light, g)
+    return [
+      { lines: graticule, style: ink.grid, width: 1 },
+      { lines: coast, style: ink.coast, width: 0.8 }
+    ]
   }
 
+  // #endregion
+
+  // #region Time bar, readout, card, and list
   let scrubbing = false
   let dayStamp = -1
   // the knob where the clock is, a band from now to it with the gap written
@@ -552,6 +579,36 @@ export function mount() {
     resize()
   })
 
+  // the list down the left, geostationary west to east, then the polar
+  // imagers by name
+  function buildRoster() {
+    const lists = { geo: $('roster-geo'), leo: $('roster-leo') }
+    for (const list of Object.values(lists)) list.replaceChildren()
+    const lon = (sat) => geodetic(position(sat.el, sim), sim).lon
+    const order = sats
+      .map((sat, index) => ({ sat, index }))
+      .sort((a, b) =>
+        a.sat.geo && b.sat.geo ? lon(a.sat) - lon(b.sat) : a.sat.name.localeCompare(b.sat.name)
+      )
+    rows = order.map(({ sat, index }) => {
+      const li = document.createElement('li')
+      const button = document.createElement('button')
+      button.dataset.index = String(index)
+      button.className = sat.geo ? 'geo' : 'leo'
+      const name = document.createElement('span')
+      name.className = 'name'
+      name.textContent = sat.name
+      const value = document.createElement('span')
+      value.className = 'value'
+      button.append(name, value)
+      li.append(button)
+      lists[sat.geo ? 'geo' : 'leo'].append(li)
+      return { index, button, value }
+    })
+    $('roster-geo-count').textContent = String(lists.geo.children.length)
+    $('roster-leo-count').textContent = String(lists.leo.children.length)
+  }
+
   function select(index, center) {
     poke()
     selected = index
@@ -608,6 +665,9 @@ export function mount() {
     showReadout()
   }
 
+  // #endregion
+
+  // #region Storage, theme, and style
   // localStorage can be missing or full, and the page works without it
   const stored = (key) => {
     try {
@@ -681,6 +741,9 @@ export function mount() {
     if (save) store(STYLE_KEY, style)
   }
 
+  // #endregion
+
+  // #region Actions and input
   const actions = {
     style() {
       setStyle(LOOK ? 'color' : 'mono', true)
@@ -935,6 +998,9 @@ export function mount() {
     { passive: false }
   )
 
+  // #endregion
+
+  // #region The saved view and the frame loop
   let lastFrame = performance.now()
   let turned = gmst(sim)
   let lastReadout = 0
@@ -977,24 +1043,26 @@ export function mount() {
     return v.pick
   }
 
-  function frame(now) {
-    const ms = Math.min(100, now - lastFrame)
-    lastFrame = now
+  // the clock moved on by ms, held within the time bar's week either side
+  // of now, and stopped at its end
+  function advance(ms) {
     if (!paused) sim += ms * RATES[rate]
-    // the time bar holds a week either side of now, and time stops at its end
     const wall = Date.now()
     if (locked !== null) sim = locked
     else {
       if (sim > wall + WEEK && !paused) actions.pause()
       sim = within(sim, wall)
     }
-    // the camera turns with the Earth, so the globe holds still and only the
-    // satellites and the Sun move, at any speed and across any jump in time
+  }
+
+  // The view moved on by ms: turned with the Earth, so the globe holds still
+  // and only the satellites and the Sun move at any speed and across any
+  // jump in time, then steered by held keys, a fling, and a swing.
+  function move(ms, now) {
     const g = gmst(sim)
     const dg = centered(g - turned)
     turned = g
     if (dg) orientation = multiply(orientation, spinBy(dg))
-    // held keys move the view over the ground, north and east
     const k = STEER * (grip() / DRAG) * (ms / FRAME)
     const [north, east] = [...held].reduce(
       (sum, code) => sum.map((c, i) => c + KEYS[code][i] * k),
@@ -1012,6 +1080,13 @@ export function mount() {
       zoom = swing.z0 * (swing.z1 / swing.z0) ** eased
       if (t === 1) swing = null
     }
+  }
+
+  function frame(now) {
+    const ms = Math.min(100, now - lastFrame)
+    lastFrame = now
+    advance(ms)
+    move(ms, now)
     const busy =
       Boolean(press || pointers.size || held.size || swing || scrubbing) ||
       spin !== STILL ||
@@ -1034,36 +1109,9 @@ export function mount() {
     raf = requestAnimationFrame(frame)
   }
 
-  // the list down the left, geostationary west to east, then the polar
-  // imagers by name
-  function buildRoster() {
-    const lists = { geo: $('roster-geo'), leo: $('roster-leo') }
-    for (const list of Object.values(lists)) list.replaceChildren()
-    const lon = (sat) => geodetic(position(sat.el, sim), sim).lon
-    const order = sats
-      .map((sat, index) => ({ sat, index }))
-      .sort((a, b) =>
-        a.sat.geo && b.sat.geo ? lon(a.sat) - lon(b.sat) : a.sat.name.localeCompare(b.sat.name)
-      )
-    rows = order.map(({ sat, index }) => {
-      const li = document.createElement('li')
-      const button = document.createElement('button')
-      button.dataset.index = String(index)
-      button.className = sat.geo ? 'geo' : 'leo'
-      const name = document.createElement('span')
-      name.className = 'name'
-      name.textContent = sat.name
-      const value = document.createElement('span')
-      value.className = 'value'
-      button.append(name, value)
-      li.append(button)
-      lists[sat.geo ? 'geo' : 'leo'].append(li)
-      return { index, button, value }
-    })
-    $('roster-geo-count').textContent = String(lists.geo.children.length)
-    $('roster-leo-count').textContent = String(lists.leo.children.length)
-  }
+  // #endregion
 
+  // #region Elements
   // Hold the clock at the data's own time, the satellites where they were
   // then, with the time controls off and the time bar saying why.
   function lock(at) {
@@ -1082,9 +1130,7 @@ export function mount() {
   // site publishes every two hours, else CelesTrak itself, else whatever older
   // copy there is. Visitors reading the published copy keep the load on
   // CelesTrak to one fetch every two hours.
-  async function load() {
-    const now = Date.now()
-    const cached = parsed(CACHE_KEY)
+  async function elementsAt(now, cached) {
     let snap = fresh(cached, now) ? cached : null
     let published = null
     if (!snap) {
@@ -1101,6 +1147,13 @@ export function mount() {
         if (!snap) readout.note.textContent = 'elements not loading, nothing to show'
       }
     }
+    return snap
+  }
+
+  async function load() {
+    const now = Date.now()
+    const cached = parsed(CACHE_KEY)
+    const snap = await elementsAt(now, cached)
     if (!snap) return
     if (now - snap.at > TRUSTED) lock(snap.at)
     if (snap !== cached) store(CACHE_KEY, JSON.stringify(snap))
@@ -1115,6 +1168,9 @@ export function mount() {
     if (index >= 0) select(index, false)
   }
 
+  // #endregion
+
+  // #region Start, and the teardown the router calls on leaving
   setStyle(stored(STYLE_KEY) === 'mono' ? 'mono' : 'color')
   setTheme(
     stored(THEME_KEY) ?? (matchMedia('(prefers-color-scheme: light)').matches ? 'light' : 'dark')
@@ -1147,4 +1203,5 @@ export function mount() {
     delete document.documentElement.dataset.style
     event?.waitUntil?.(wink.then((run) => run(false)))
   }
+  // #endregion
 }
