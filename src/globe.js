@@ -107,8 +107,10 @@ void main() {
   #define GRID(step, w) max(line(latd / step, w), LON(step, w))
   bool seen = dot(p, uSeenU) > uSeenCos;
   bool picking = uSeenCos < 1.5;
-  // the coast as the edge of land, one line however steep the shore
-  float coast = level(smoothstep(-15.0, 15.0, h), 0.5, 1.0) * uCoast;
+  // the coast as the zero height line, measured in px from the height's own
+  // slope so a steep shore stays one smooth line. The floor on the slope, in
+  // metres per px, keeps a flat shore from filling with line.
+  float coast = clamp(0.5 * uDpr + 0.5 - abs(h) / max(fwidth(h), 0.5), 0.0, 1.0) * uCoast;
 
   // every line worked out up front, since derivatives need uniform flow
   float landFine = line(h / uStep, 0.45);
