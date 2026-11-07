@@ -101,12 +101,19 @@ void main() {
   mat2 mg = gradOf(muv);
   float m = textureGrad(uMask, muv, mg[0], mg[1]).r;
   float h = mix(-3000.0, 300.0, m);
+  // The heights are Web Mercator, which stops at 85.05°. Past it the last row
+  // at each longitude runs on toward the measured height at the pole, the ice
+  // at the South Pole and the sea floor at the North.
   float v = 0.5 - log(tan(0.25 * PI + 0.5 * clamp(lat, -1.484, 1.484))) / (2.0 * PI);
   mat2 hg = gradOf(vec2(u, v));
+  float into = clamp((abs(lat) - 1.484) / (0.5 * PI - 1.484), 0.0, 1.0);
+  float cap = smoothstep(0.0, 1.0, into);
+  // coarser fast past the edge, so a ridge on the last row does not fan out
+  float blur = exp2(8.0 * sqrt(into));
   // sampled every pixel, since a branch would leave the lookups without
   // derivatives
-  float base = smoothHeight(uHeight, vec2(u, v), hg[0], hg[1]);
-  if (uHasHeight && abs(lat) < 1.484) h = base;
+  float base = smoothHeight(uHeight, vec2(u, v), hg[0] * blur, hg[1] * blur);
+  if (uHasHeight) h = mix(base, lat < 0.0 ? 2835.0 : -4261.0, cap);
 
   // the Sun's altitude, and high ground sees past the sea-level horizon
   float sun = degrees(asin(clamp(dot(p, uLight), -1.0, 1.0)));
