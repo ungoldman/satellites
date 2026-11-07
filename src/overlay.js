@@ -30,6 +30,9 @@ const BELT = Array.from({ length: 145 }, (_, k) => [
 const PLUMB = 24
 // samples in each trail
 const TRAIL = 20
+// the belt dial's ticks and labels as fractions of the belt's radius, so the
+// dial keeps its proportions at either scale
+const DIAL = { inner: 0.995, minor: 1.0066, major: 1.0147, label: 1.032 }
 
 // Where each satellite is on screen for a scene, which way it is heading,
 // how fast, and the value its label carries.
@@ -139,6 +142,15 @@ export function createOverlay(ctx) {
   // the geostationary belt as a dial of longitude, turning with the Earth
   function drawBelt() {
     drawPath(BELT, s.ink.belt, false)
+    const r = length(scaled([GEO_KM, 0, 0], s.scale))
+    const dial = (u, f) => {
+      const p = toScreen(
+        s.orientation,
+        u.map((c) => c * r * f)
+      )
+      const [x, y] = project(p, s.width, s.height, s.z)
+      return { x, y, hidden: hidden(p) }
+    }
     type(9, '0.12em')
     ctx.textAlign = 'center'
     for (let k = 0; k < 36; k++) {
@@ -146,8 +158,8 @@ export function createOverlay(ctx) {
       const a = lon * RAD + s.g
       const u = [Math.cos(a), Math.sin(a), 0]
       const major = k % 3 === 0
-      const from = at(u.map((c) => c * GEO_KM * 0.985))
-      const to = at(u.map((c) => c * GEO_KM * (major ? 1.045 : 1.02)))
+      const from = dial(u, DIAL.inner)
+      const to = dial(u, major ? DIAL.major : DIAL.minor)
       if (from.hidden) continue
       ctx.strokeStyle = major ? s.ink.tick : s.ink.belt
       ctx.beginPath()
@@ -155,7 +167,7 @@ export function createOverlay(ctx) {
       ctx.lineTo(to.x, to.y)
       ctx.stroke()
       if (!major) continue
-      const l = at(u.map((c) => c * GEO_KM * 1.1))
+      const l = dial(u, DIAL.label)
       ctx.fillStyle = s.ink.faint
       ctx.fillText(lonLabel(lon), l.x, l.y)
     }
