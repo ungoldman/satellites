@@ -129,19 +129,22 @@ void main() {
   float terminator = level(sun, -0.833, 1.1);
   float twilight = max(level(sun, -6.0, 0.8), max(level(sun, -12.0, 0.8), level(sun, -18.0, 0.8)));
   float hatch = line((gl_FragCoord.x + gl_FragCoord.y) / (7.0 * uDpr), 0.8);
-  bool land = h > 0.0;
+  // how much of the pixel is land, from the same distance to the coast
+  float land = clamp(0.5 + h / max(fwidth(h), 0.5), 0.0, 1.0);
   float ink = 0.0;
   vec3 col;
   if (uLook == 0) {
     // colour: banded depth and height, fine contours over them
     float deep = floor(clamp(-h, 0.0, 5999.0) / 1000.0) / 5.0;
     float high = floor(clamp(h, 0.0, 3999.0) / 800.0) / 4.0;
-    col = land ? mix(uLandLow, uLandHigh, high) : mix(uOceanShallow, uOceanDeep, deep);
+    col = mix(mix(uOceanShallow, uOceanDeep, deep), mix(uLandLow, uLandHigh, high), land);
     col = mix(mix(col, uNight, uNightMix), col, day);
     float k = mix(0.45, 1.0, day);
-    float contour = land
-      ? max(landMid * 0.12, landMajor * 0.22)
-      : max(shelf * 0.22, max(seaFine * 0.05, seaMajor * 0.12));
+    float contour = mix(
+      max(shelf * 0.22, max(seaFine * 0.05, seaMajor * 0.12)),
+      max(landMid * 0.12, landMajor * 0.22),
+      land
+    );
     ink = max(contour * k, coast * 0.85 * k);
     ink = max(ink, grid10 * 0.07);
     ink = max(ink, grid30 * 0.15);
@@ -153,13 +156,15 @@ void main() {
     col = mix(uBg, col, 0.74 + 0.26 * face);
   } else {
     // mono: one ink, faint depth bands under dense lines
-    float fill = land
-      ? 0.06 + 0.02 * floor(clamp(h, 0.0, 3999.0) / 1000.0)
-      : 0.035 - 0.005 * floor(clamp(-h, 0.0, 5999.0) / 1000.0);
+    float fill = mix(
+      0.035 - 0.005 * floor(clamp(-h, 0.0, 5999.0) / 1000.0),
+      0.06 + 0.02 * floor(clamp(h, 0.0, 3999.0) / 1000.0),
+      land
+    );
     // day and night each add their own share of ink, so the night side reads
     // on a light ground as well as a dark one
     col = mix(uBg, uInk, fill * mix(0.4, 1.0, day) + mix(uMonoNight, uMonoDay, day));
-    ink = land ? max(landFine * 0.18, landMajor * 0.4) : max(seaFine * 0.08, seaMajor * 0.18);
+    ink = mix(max(seaFine * 0.08, seaMajor * 0.18), max(landFine * 0.18, landMajor * 0.4), land);
     ink = max(ink, coast);
     ink = max(ink, grid5 * 0.1);
     ink = max(ink, grid30 * 0.24);
