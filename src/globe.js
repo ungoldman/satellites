@@ -49,12 +49,23 @@ float smoothHeight(sampler2D tex, vec2 uv) {
     + g1.y * (g0.x * texture(tex, vec2(h0.x, h1.y)).r + g1.x * texture(tex, h1).r);
 }
 
-// a 4 by 4 ordered dither threshold per CSS pixel
-float bayer(vec2 frag) {
-  ivec2 i = ivec2(mod(floor(frag / uDpr), 4.0));
-  int k = i.x + i.y * 4;
-  float m[16] = float[16](0., 8., 2., 10., 12., 4., 14., 6., 3., 11., 1., 9., 15., 7., 13., 5.);
-  return (m[k] + 0.5) / 16.0;
+// Sky illuminance in lux with the Sun at altitude a degrees, after USNO
+// Circular 171 (Janiczek and DeYoung 1987). Refraction lifts the Sun near the
+// horizon, and starlight and airglow leave 0.0005 lux once it has set.
+float lux(float a) {
+  if (a > -5.0 / 6.0) a += 1.0 / tan(radians(a + 8.6 / (a + 4.42))) / 60.0;
+  float u = sin(radians(a));
+  float x = 753.66156;
+  float c = cos(asin(x * cos(radians(a)) / (x + 1.0)));
+  float m = x * (c - u) + c;
+  float sky = exp(-0.21 * m) * u + 0.0289 * exp(-0.042 * m) * (1.0 + (a + 90.0) * u / 57.29577951);
+  return 133775.0 * max(sky, 0.0) + 0.0005;
+}
+
+// how light the ground looks, 0 at full night to 1 under an overhead Sun, on a
+// log scale of illuminance since the eye adapts across it
+float daylight(float a) {
+  return clamp((log(lux(a)) + 7.6009) / (11.7263 + 7.6009), 0.0, 1.0);
 }
 
 void main() {
@@ -82,8 +93,10 @@ void main() {
   float base = smoothHeight(uHeight, vec2(u, v));
   if (uHasHeight && abs(lat) < 1.484) h = base;
 
-  float lit = dot(p, uLight);
-  float day = step(bayer(gl_FragCoord.xy), smoothstep(-0.12, 0.22, lit));
+  // the Sun's altitude, and high ground sees past the sea-level horizon
+  float sun = degrees(asin(clamp(dot(p, uLight), -1.0, 1.0)));
+  float dip = degrees(acos(1.0 / (1.0 + max(h, 0.0) / 6371000.0)));
+  float day = daylight(sun + dip);
   float face = -p.z;
   float latd = degrees(lat);
   float lond = degrees(lon);
@@ -109,8 +122,10 @@ void main() {
   float grid30 = GRID(30.0, 0.7);
   float equator = level(latd, 0.0, 0.9);
   float dots = line(latd, 1.4) * LON(1.0, 1.4);
-  float terminator = level(lit, 0.0, 1.1);
-  float twilight = 1.0 - smoothstep(0.0, 0.12, abs(lit));
+  // sunset at sea level, the Sun's upper limb on the horizon, then the ends
+  // of civil, nautical, and astronomical twilight
+  float terminator = level(sun, -0.833, 1.1);
+  float twilight = max(level(sun, -6.0, 0.8), max(level(sun, -12.0, 0.8), level(sun, -18.0, 0.8)));
   float hatch = line((gl_FragCoord.x + gl_FragCoord.y) / (7.0 * uDpr), 0.8);
   bool land = h > 0.0;
   float ink = 0.0;
@@ -130,6 +145,7 @@ void main() {
     ink = max(ink, grid30 * 0.15);
     ink = max(ink, equator * 0.28);
     ink = max(ink, terminator * 0.12);
+    ink = max(ink, twilight * 0.06);
     col = mix(col, uInk, ink);
     if (seen) col = mix(col, uSeenInk, 0.12);
     col = mix(uBg, col, 0.74 + 0.26 * face);
@@ -149,6 +165,7 @@ void main() {
     ink = max(ink, dots * 0.26);
     ink *= mix(0.3, 1.0, day);
     ink = max(ink, terminator * 0.16);
+    ink = max(ink, twilight * 0.08);
     // the picked satellite's view stands out over day and night: its own
     // fill and hatch, brighter lines, the rest of the globe stepped back
     if (seen) {
