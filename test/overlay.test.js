@@ -106,14 +106,12 @@ test('every satellite gets a mark, its label value by kind of orbit', () => {
   }
 })
 
-test('the latitude ring and the belt are labelled', () => {
+test('the belt is labelled with longitude only', () => {
   const ctx = fakeCtx()
   const draw = createOverlay(ctx)
   draw(scene(gmst(MS), 0))
   const words = texts(ctx)
-  assert.ok(words.includes('EQ'))
-  assert.ok(words.some((w) => /^\d+°N$/.test(w)))
-  assert.ok(words.some((w) => /^\d+°S$/.test(w)))
+  assert.ok(!words.some((w) => w === 'EQ' || /^\d+°[NS]$/.test(w)))
   assert.ok(words.includes('0°'))
   assert.ok(words.some((w) => /^\d+°W$/.test(w)))
   assert.ok(words.some((w) => /^\d+°E$/.test(w)))

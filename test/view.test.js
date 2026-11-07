@@ -26,7 +26,6 @@ import {
   normalize,
   overlaps,
   PICK_KEYS,
-  parallels,
   pixels,
   project,
   RATE_KEYS,
@@ -283,38 +282,6 @@ test('the edge of the globe sits just past one radius', () => {
   near(LIMB, DISTANCE / Math.sqrt(DISTANCE ** 2 - 1), 1e-15)
   assert.ok(hit(LIMB * 0.999, 0))
   assert.equal(hit(LIMB * 1.001, 0), null)
-})
-
-test('the equator meets the edge on both sides when it is faced', () => {
-  const rings = parallels(facing(0, 0), 0)
-  const eq = rings.find((r) => r.v === 0)
-  assert.equal(eq.angles.length, 2)
-  assert.equal(eq.fade, 1)
-  // on the left and right of the screen
-  const sides = eq.angles.map((a) => Math.round(Math.cos(a))).sort()
-  assert.deepEqual(sides, [-1, 1])
-  // the parallels seen are the same on each side
-  for (const r of rings) assert.equal(r.angles.length, 2, `${r.v}`)
-  assert.deepEqual(
-    rings.map((r) => r.v).sort((a, b) => a - b),
-    [-80, -70, -60, -50, -40, -30, -20, -10, 0, 10, 20, 30, 40, 50, 60, 70, 80]
-  )
-})
-
-test('a parallel fades as it turns to graze the edge', () => {
-  // tipped 33° north the edge dips just past 50° south, so that parallel
-  // crosses it twice close together and is fading
-  const rings = parallels(facing(0, 33), 0)
-  const graze = rings.find((r) => r.v === -50)
-  assert.equal(graze.angles.length, 2)
-  assert.ok(graze.fade > 0 && graze.fade < 1, `${graze.fade}`)
-  assert.equal(rings.find((r) => r.v === 0).fade, 1)
-  assert.equal(
-    rings.find((r) => r.v === -60),
-    undefined
-  )
-  // straight down on a pole the edge is one parallel all round, so none cross
-  assert.deepEqual(parallels(facing(0, 90), 0), [])
 })
 
 test('steering moves the center over the ground with north up', () => {

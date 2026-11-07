@@ -287,35 +287,6 @@ export function ground(q, g, sx, sy) {
 // The edge of the globe in radii from the center.
 export const LIMB = DISTANCE / Math.sqrt(DISTANCE ** 2 - 1)
 
-// Where each parallel a multiple of step degrees meets the edge of the globe,
-// as screen angles, and how far it has faded. A parallel crosses the edge
-// twice, and as it turns to graze the edge its crossings meet, so it fades
-// there rather than popping.
-export function parallels(q, g, step = 10, samples = 720) {
-  const lat = (k) => {
-    const a = (k / samples) * 2 * Math.PI
-    return ground(q, g, Math.cos(a) * LIMB * 0.9995, Math.sin(a) * LIMB * 0.9995).lat
-  }
-  const found = new Map()
-  let prev = lat(0)
-  for (let k = 1; k <= samples; k++) {
-    const cur = lat(k % samples)
-    const lo = Math.min(prev, cur)
-    const hi = Math.max(prev, cur)
-    for (let v = Math.floor(lo / step) * step + step; v <= hi; v += step) {
-      const a = ((k - 1 + (v - prev) / (cur - prev)) / samples) * 2 * Math.PI
-      found.set(v, [...(found.get(v) ?? []), a])
-    }
-    prev = cur
-  }
-  return [...found].map(([v, angles]) => {
-    // a closed edge crosses each level an even number of times, here twice
-    const apart = Math.abs(angles[0] - angles[1])
-    const fade = Math.min(1, Math.max(0, (Math.min(apart, 2 * Math.PI - apart) - 0.04) / 0.2))
-    return { v, angles, fade }
-  })
-}
-
 // The view moved over the ground under view q at sidereal angle g: the point
 // at the center goes north and east by degrees, and north comes back up. East
 // is a steady turn in longitude, which near a pole spins the view about it at

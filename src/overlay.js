@@ -1,5 +1,5 @@
-// The 2D overlay over the globe: the belt, the latitude ring, satellites with
-// their trails and labels, the picked one's track, plumb line, and view, the
+// The 2D overlay over the globe: the belt, satellites with their trails and
+// labels, the picked one's track, plumb line, and view, the
 // leader to its card, the viewer's place, and the cursor. It draws on the
 // context it is given from a plain scene, with no DOM of its own, so it runs
 // in Node against a stand-in context.
@@ -18,17 +18,7 @@ import {
   surface,
   track
 } from './orbit.js'
-import {
-  DISTANCE,
-  hidden,
-  LIMB,
-  leader,
-  overlaps,
-  parallels,
-  pixels,
-  project,
-  toScreen
-} from './view.js'
+import { DISTANCE, hidden, LIMB, leader, overlaps, pixels, project, toScreen } from './view.js'
 
 // the geostationary belt
 const BELT = Array.from({ length: 145 }, (_, k) => [
@@ -179,41 +169,6 @@ export function createOverlay(ctx) {
     ctx.beginPath()
     ctx.arc(s.width / 2, s.height / 2, limb(), 0, 2 * Math.PI)
     ctx.stroke()
-  }
-
-  // a ring round the Earth that reads latitude where it meets the edge
-  function drawBezel() {
-    const cx = s.width / 2
-    const cy = s.height / 2
-    const r = limb() * 1.14 + 6
-    ctx.lineWidth = 1
-    ctx.strokeStyle = s.ink.belt
-    ctx.beginPath()
-    ctx.arc(cx, cy, r, 0, 2 * Math.PI)
-    ctx.stroke()
-    type(9, '0.12em')
-    ctx.textAlign = 'center'
-    // a tick every 10°, a label every 30°, longitude being on the belt
-    for (const { v, angles, fade } of parallels(s.orientation, s.g)) {
-      ctx.globalAlpha = fade
-      ctx.strokeStyle = s.ink.tick
-      ctx.fillStyle = s.ink.faint
-      const major = v % 30 === 0
-      const out = r + (major ? 9 : 4)
-      ctx.beginPath()
-      for (const a of angles) {
-        ctx.moveTo(cx + Math.cos(a) * r, cy + Math.sin(a) * r)
-        ctx.lineTo(cx + Math.cos(a) * out, cy + Math.sin(a) * out)
-      }
-      ctx.stroke()
-      if (!major) continue
-      const text = v === 0 ? 'EQ' : `${Math.abs(v)}°${v > 0 ? 'N' : 'S'}`
-      for (const a of angles)
-        ctx.fillText(text, cx + Math.cos(a) * (r + 22), cy + Math.sin(a) * (r + 22))
-    }
-    ctx.globalAlpha = 1
-    ctx.textAlign = 'start'
-    ctx.letterSpacing = '0px'
   }
 
   // where each satellite has just been, fading out behind it
@@ -476,7 +431,6 @@ export function createOverlay(ctx) {
     at = locate(s)
     for (const lines of s.lines) drawLines(lines)
     drawLimb()
-    drawBezel()
     drawBelt()
     drawTrails()
     if (s.selected >= 0) drawPicked(s.sats[s.selected])
