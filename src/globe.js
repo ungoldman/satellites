@@ -21,6 +21,8 @@ uniform bool uHasHeight;
 uniform int uLook;
 out vec4 o;
 const float PI = 3.14159265;
+// how much coarser than a pixel the coast's heights are sampled
+const float COARSE = 2.0;
 
 // distance in device px to the nearest whole value of f
 float px(float f) { return abs(fract(f - 0.5) - 0.5) / max(fwidth(f), 1e-6); }
@@ -112,8 +114,31 @@ void main() {
   float blur = exp2(8.0 * sqrt(into));
   // sampled every pixel, since a branch would leave the lookups without
   // derivatives
-  float base = smoothHeight(uHeight, vec2(u, v), hg[0] * blur, hg[1] * blur);
-  if (uHasHeight) h = mix(base, lat < 0.0 ? 2835.0 : -4261.0, cap);
+  vec2 hv = vec2(u, v);
+  float base = smoothHeight(uHeight, hv, hg[0] * blur, hg[1] * blur);
+  float polar = lat < 0.0 ? 2835.0 : -4261.0;
+  if (uHasHeight) h = mix(base, polar, cap);
+  // The coast is traced on heights a mip coarser than the relief, so a shore
+  // wrinkled finer than a pixel or two reads as one line or not at all. Its
+  // slope comes from the pixel's own neighbours: fwidth is shared across a
+  // 2x2 quad, which breaks a low shore into steps and dots.
+  float hc = h;
+  vec2 slope = vec2(fwidth(h), 0.0);
+  if (uHasHeight) {
+    vec2 cx = hg[0] * blur * COARSE;
+    vec2 cy = hg[1] * blur * COARSE;
+    hc = mix(smoothHeight(uHeight, hv, cx, cy), polar, cap);
+    slope = 0.5 * (1.0 - cap) * vec2(
+      smoothHeight(uHeight, hv + hg[0], cx, cy) - smoothHeight(uHeight, hv - hg[0], cx, cy),
+      smoothHeight(uHeight, hv + hg[1], cx, cy) - smoothHeight(uHeight, hv - hg[1], cx, cy)
+    );
+  }
+  // The floor on the slope keeps a flat shore from filling with line. It is
+  // 2 m a texel, so a shore magnified across many pixels keeps its width,
+  // and at most 0.5 m a pixel.
+  vec2 texels = vec2(textureSize(uHeight, 0));
+  float span = max(length(hg[0] * texels), length(hg[1] * texels));
+  float shore = abs(hc) / max(length(slope), min(0.5, 2.0 * span));
 
   // the Sun's altitude, and high ground sees past the sea-level horizon
   float sun = degrees(asin(clamp(dot(p, uLight), -1.0, 1.0)));
@@ -132,7 +157,7 @@ void main() {
   // the coast as the zero height line, measured in px from the height's own
   // slope so a steep shore stays one smooth line. The floor on the slope, in
   // metres per px, keeps a flat shore from filling with line.
-  float coast = clamp(0.5 * uDpr + 0.5 - abs(h) / max(fwidth(h), 0.5), 0.0, 1.0) * uCoast;
+  float coast = clamp(0.5 * uDpr + 0.5 - shore, 0.0, 1.0) * uCoast;
 
   // every line worked out up front, since derivatives need uniform flow
   float landFine = line(h / uStep, 0.45);
@@ -152,7 +177,7 @@ void main() {
   float twilight = max(level(sun, -6.0, 0.8), max(level(sun, -12.0, 0.8), level(sun, -18.0, 0.8)));
   float hatch = line((gl_FragCoord.x + gl_FragCoord.y) / (7.0 * uDpr), 0.8);
   // how much of the pixel is land, from the same distance to the coast
-  float land = clamp(0.5 + h / max(fwidth(h), 0.5), 0.0, 1.0);
+  float land = clamp(0.5 + sign(hc) * shore, 0.0, 1.0);
   float ink = 0.0;
   vec3 col;
   if (uLook == 0) {
