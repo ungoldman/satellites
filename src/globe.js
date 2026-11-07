@@ -29,8 +29,9 @@ float level(float f, float at, float w) {
   return clamp(0.5 * w * uDpr + 0.5 - abs(f - at) / max(fwidth(f), 1e-6), 0.0, 1.0);
 }
 
-// cubic B-spline from four bilinear taps, so contours run smooth between texels
-float smoothHeight(sampler2D tex, vec2 uv) {
+// cubic B-spline from four bilinear taps, so contours run smooth between
+// texels. The gradients pick the mip level, see gradOf.
+float smoothHeight(sampler2D tex, vec2 uv, vec2 dx, vec2 dy) {
   vec2 size = vec2(textureSize(tex, 0));
   vec2 p = uv * size - 0.5;
   vec2 f = fract(p);
@@ -45,8 +46,19 @@ float smoothHeight(sampler2D tex, vec2 uv) {
   vec2 g1 = w2 + w3;
   vec2 h0 = (p - 0.5 + w1 / g0) / size;
   vec2 h1 = (p + 1.5 + w3 / g1) / size;
-  return g0.y * (g0.x * texture(tex, h0).r + g1.x * texture(tex, vec2(h1.x, h0.y)).r)
-    + g1.y * (g0.x * texture(tex, vec2(h0.x, h1.y)).r + g1.x * texture(tex, h1).r);
+  return g0.y * (g0.x * textureGrad(tex, h0, dx, dy).r + g1.x * textureGrad(tex, vec2(h1.x, h0.y), dx, dy).r)
+    + g1.y * (g0.x * textureGrad(tex, vec2(h0.x, h1.y), dx, dy).r + g1.x * textureGrad(tex, h1, dx, dy).r);
+}
+
+// A texture coordinate's change across one pixel. Longitude wraps at the date
+// line, where u jumps a whole turn, which would otherwise read as the whole
+// texture in one pixel and sample the coarsest mip.
+mat2 gradOf(vec2 uv) {
+  vec2 dx = dFdx(uv);
+  vec2 dy = dFdy(uv);
+  dx.x -= round(dx.x);
+  dy.x -= round(dy.x);
+  return mat2(dx, dy);
 }
 
 // Sky illuminance in lux with the Sun at altitude a degrees, after USNO
@@ -85,12 +97,15 @@ void main() {
   float lon = atan(e.y, e.x);
   float u = lon / (2.0 * PI) + 0.5;
 
-  float m = texture(uMask, vec2(u, 0.5 - lat / PI)).r;
+  vec2 muv = vec2(u, 0.5 - lat / PI);
+  mat2 mg = gradOf(muv);
+  float m = textureGrad(uMask, muv, mg[0], mg[1]).r;
   float h = mix(-3000.0, 300.0, m);
   float v = 0.5 - log(tan(0.25 * PI + 0.5 * clamp(lat, -1.484, 1.484))) / (2.0 * PI);
+  mat2 hg = gradOf(vec2(u, v));
   // sampled every pixel, since a branch would leave the lookups without
   // derivatives
-  float base = smoothHeight(uHeight, vec2(u, v));
+  float base = smoothHeight(uHeight, vec2(u, v), hg[0], hg[1]);
   if (uHasHeight && abs(lat) < 1.484) h = base;
 
   // the Sun's altitude, and high ground sees past the sea-level horizon
