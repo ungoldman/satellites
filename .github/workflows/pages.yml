@@ -23,7 +23,7 @@ jobs:
     runs-on: ubuntu-latest
     environment:
       name: github-pages
-      url: ${{ steps.deployment.outputs.page_url }}
+      url: ${{ steps.deployment.outputs.page_url || steps.retry.outputs.page_url || steps.retry2.outputs.page_url }}
 
     steps:
       # full history, so the page can carry the date src/ last changed
@@ -54,4 +54,18 @@ jobs:
       - uses: actions/configure-pages@v6
       - uses: actions/upload-pages-artifact@v5
       - id: deployment
+        uses: actions/deploy-pages@v5
+        continue-on-error: true
+      # the artifact listing can lag the upload by up to a minute, and an
+      # immediate retry reads the same stale listing, actions/deploy-pages#451
+      - if: steps.deployment.outcome == 'failure'
+        run: sleep 20
+      - id: retry
+        if: steps.deployment.outcome == 'failure'
+        uses: actions/deploy-pages@v5
+        continue-on-error: true
+      - if: steps.deployment.outcome == 'failure' && steps.retry.outcome == 'failure'
+        run: sleep 60
+      - id: retry2
+        if: steps.deployment.outcome == 'failure' && steps.retry.outcome == 'failure'
         uses: actions/deploy-pages@v5
